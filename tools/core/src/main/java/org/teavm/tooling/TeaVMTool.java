@@ -103,13 +103,22 @@ public class TeaVMTool {
     private Set<File> generatedFiles = new HashSet<>();
     private int minHeapSize = 32 * (1 << 20);
     private ReferenceCache referenceCache;
-
+    private BuildTarget buildTarget;
+    
     public File getTargetDirectory() {
         return targetDirectory;
     }
 
     public void setTargetDirectory(File targetDirectory) {
         this.targetDirectory = targetDirectory;
+    }
+
+    /**
+     * Set the build target, which is used for creation of output files.
+     * @param buildTarget    The BuildTarget to use for creation of output.
+     */
+    public void setBuildTarget(BuildTarget buildTarget) {
+        this.buildTarget = buildTarget;
     }
 
     public String getTargetFileName() {
@@ -396,7 +405,9 @@ public class TeaVMTool {
             }
             targetDirectory.mkdirs();
 
-            BuildTarget buildTarget = new DirectoryBuildTarget(targetDirectory);
+            if (buildTarget == null) {
+                buildTarget = new DirectoryBuildTarget(targetDirectory);
+            }
             String outputName = getResolvedTargetFileName();
             vm.build(buildTarget, outputName);
             if (vm.wasCancelled()) {
