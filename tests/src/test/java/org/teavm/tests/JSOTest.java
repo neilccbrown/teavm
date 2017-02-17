@@ -19,6 +19,8 @@ import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.util.List;
 import org.junit.Test;
 import org.teavm.backend.javascript.JavaScriptTarget;
@@ -26,6 +28,7 @@ import org.teavm.dependency.DependencyTestPatcher;
 import org.teavm.diagnostics.Problem;
 import org.teavm.jso.JSBody;
 import org.teavm.model.MethodReference;
+import org.teavm.vm.BuildTarget;
 import org.teavm.vm.TeaVM;
 import org.teavm.vm.TeaVMBuilder;
 
@@ -98,7 +101,18 @@ public class JSOTest {
         vm.add(new DependencyTestPatcher(JSOTest.class.getName(), methodName));
         vm.installPlugins();
         vm.entryPoint(JSOTest.class.getName());
-        vm.build(name -> new ByteArrayOutputStream(), "tmp");
+        vm.build(new BuildTarget() {
+            @Override
+            public OutputStream createResource(String fileName)
+                    throws IOException {
+                return new ByteArrayOutputStream();
+            }
+            @Override
+            public OutputStream appendResource(String fileName)
+                    throws IOException {
+                return new ByteArrayOutputStream();
+            }
+        }, "tmp");
         return vm.getProblemProvider().getSevereProblems();
     }
 }

@@ -20,4 +20,6 @@ import java.io.OutputStream;
 
 public interface BuildTarget {
     OutputStream createResource(String fileName) throws IOException;
+
+    OutputStream appendResource(String fileName) throws IOException;
 }

@@ -39,4 +39,16 @@ public class DirectoryBuildTarget implements BuildTarget {
         }
         return new BufferedOutputStream(new FileOutputStream(new File(directory, fileName)), 65536);
     }
+
+    @Override
+    public OutputStream appendResource(String fileName) throws IOException {
+        int index = fileName.lastIndexOf('/');
+        if (index >= 0) {
+            File dir = new File(directory, fileName.substring(0, index));
+            if (!dir.exists()) {
+                dir.mkdirs();
+            }
+        }
+        return new BufferedOutputStream(new FileOutputStream(new File(directory, fileName), true), 65536);
+    }
 }

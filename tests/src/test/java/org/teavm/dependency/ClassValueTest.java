@@ -17,12 +17,17 @@ package org.teavm.dependency;
 
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+
+import java.io.IOException;
+import java.io.OutputStream;
+
 import org.apache.commons.io.output.ByteArrayOutputStream;
 import org.junit.Test;
 import org.teavm.backend.javascript.JavaScriptTarget;
 import org.teavm.model.MethodReference;
 import org.teavm.tooling.TeaVMProblemRenderer;
 import org.teavm.tooling.TeaVMToolLog;
+import org.teavm.vm.BuildTarget;
 import org.teavm.vm.TeaVM;
 import org.teavm.vm.TeaVMBuilder;
 
@@ -78,7 +83,22 @@ public class ClassValueTest {
         vm.add(new DependencyTestPatcher(getClass().getName(), methodName));
         vm.installPlugins();
         vm.entryPoint(getClass().getName());
-        vm.build(fileName -> new ByteArrayOutputStream(), "tmp");
+        //vm.build(fileName -> new ByteArrayOutputStream(), "tmp");
+        vm.build(new BuildTarget() {
+            @Override
+            public OutputStream createResource(String fileName)
+                    throws IOException
+            {
+                return new ByteArrayOutputStream();
+            }
+
+            @Override
+            public OutputStream appendResource(String fileName)
+                    throws IOException
+            {
+                return new ByteArrayOutputStream();
+            }
+        }, "tmp");
         if (!vm.getProblemProvider().getSevereProblems().isEmpty()) {
             fail("Code compiled with errors:\n" + describeProblems(vm));
         }

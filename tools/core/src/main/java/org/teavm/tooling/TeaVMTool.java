@@ -429,7 +429,8 @@ public class TeaVMTool {
             generatedFiles.add(outputFile);
 
             if (targetType == TeaVMTargetType.JAVASCRIPT) {
-                try (OutputStream output = new FileOutputStream(new File(targetDirectory, outputName), true)) {
+                String outputPath = new File(targetDirectory, outputName).getPath();
+                try (OutputStream output = buildTarget.appendResource(outputPath)) {
                     try (Writer writer = new OutputStreamWriter(output, StandardCharsets.UTF_8)) {
                         additionalJavaScriptOutput(writer);
                     }
