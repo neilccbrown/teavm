@@ -87,15 +87,13 @@ public class ClassValueTest {
         vm.build(new BuildTarget() {
             @Override
             public OutputStream createResource(String fileName)
-                    throws IOException
-            {
+                    throws IOException {
                 return new ByteArrayOutputStream();
             }
 
             @Override
             public OutputStream appendResource(String fileName)
-                    throws IOException
-            {
+                    throws IOException {
                 return new ByteArrayOutputStream();
             }
         }, "tmp");

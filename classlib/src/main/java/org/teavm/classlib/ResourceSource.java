@@ -1,5 +1,5 @@
 /*
- *  Copyright 2014 Alexey Andreev.
+ *  Copyright 2015 Alexey Andreev.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -13,25 +13,26 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package org.teavm.classlib.java.lang;
+package org.teavm.classlib;
 
 import java.io.InputStream;
 
-import org.teavm.classlib.ResourceSource;
+/**
+ * A resource source - a source for resources which can be loaded from the classpath.
+ * 
+ * @author Davin McCall
+ */
+public abstract class ResourceSource {
 
-class TSystemClassLoader extends TClassLoader {
-    TSystemClassLoader() {
+    private static ResourceSource resourceSource;
+
+    public abstract InputStream getResource(String name);
+
+    public static void setSource(ResourceSource source) {
+        resourceSource = source;
     }
-    
-    @Override
-    public InputStream getResourceAsStream(String name) {
-        ResourceSource resourceSource = ResourceSource.getSource();
-        if (resourceSource != null) {
-            InputStream stream = resourceSource.getResource(name);
-            if (stream != null) {
-                return stream;
-            }
-        }
-        return super.getResourceAsStream(name);
+
+    public static ResourceSource getSource() {
+        return resourceSource;
     }
 }
