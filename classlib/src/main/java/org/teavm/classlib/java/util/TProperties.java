@@ -256,13 +256,7 @@ public class TProperties extends THashtable<Object, Object> {
                         continue;
                     }
                     // fall into the next case
-                    break;
                 case '\r':
-                    if (mode == CONTINUE) { // Part of a \r\n sequence
-                        mode = IGNORE; // Ignore whitespace on the next line
-                        continue;
-                    }
-
                     mode = NONE;
                     firstChar = true;
                     if (offset > 0 || (offset == 0 && keyLength == 0)) {
