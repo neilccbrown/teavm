@@ -40,6 +40,7 @@ import org.teavm.classlib.java.lang.reflect.TMethod;
 import org.teavm.classlib.java.lang.reflect.TModifier;
 import org.teavm.dependency.PluggableDependency;
 import org.teavm.interop.Address;
+import org.teavm.interop.Async;
 import org.teavm.interop.DelegateTo;
 import org.teavm.interop.NoSideEffects;
 import org.teavm.interop.Unmanaged;
@@ -568,6 +569,7 @@ public class TClass<T> extends TObject implements TAnnotatedElement {
         return TClassLoader.getSystemClassLoader();
     }
 
+    @Async
     public static TClass<?> forName(TString name) throws TClassNotFoundException {
         PlatformClass cls = Platform.lookupClass(name.toString());
         if (cls == null) {
