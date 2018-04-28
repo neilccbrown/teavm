@@ -104,6 +104,10 @@ public class ClassGenerator {
         codeGenerator = new CodeGenerator(context, codeWriter, includes);
     }
 
+    public CodeWriter getStructuresWriter() {
+        return structuresWriter;
+    }
+
     public void generateClass(ClassHolder cls) {
         generateClassStructure(cls);
         generateClassMethods(cls);
