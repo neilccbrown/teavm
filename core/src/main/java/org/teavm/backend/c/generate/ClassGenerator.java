@@ -23,7 +23,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.teavm.ast.RegularMethodNode;
+import org.teavm.ast.MethodNode;
 import org.teavm.ast.decompilation.Decompiler;
 import org.teavm.backend.c.generators.Generator;
 import org.teavm.backend.c.generators.GeneratorContext;
@@ -185,7 +185,7 @@ public class ClassGenerator {
             }
 
             generateMethodForwardDeclaration(method);
-            RegularMethodNode methodNode = decompiler.decompileRegular(method);
+            MethodNode methodNode = decompiler.decompileRegular(method);
             codeGenerator.generateMethod(methodNode);
         }
     }
@@ -194,7 +194,6 @@ public class ClassGenerator {
         codeGenerator.generateMethodSignature(forwardDeclarationsWriter, method.getReference(),
                 method.hasModifier(ElementModifier.STATIC), false);
         forwardDeclarationsWriter.println(";");
-
     }
 
     private void generateInitializer(ClassHolder cls) {
