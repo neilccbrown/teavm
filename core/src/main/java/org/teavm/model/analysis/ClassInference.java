@@ -16,6 +16,8 @@
 package org.teavm.model.analysis;
 
 import com.carrotsearch.hppc.IntHashSet;
+import com.carrotsearch.hppc.IntObjectHashMap;
+import com.carrotsearch.hppc.IntObjectMap;
 import com.carrotsearch.hppc.IntSet;
 import com.carrotsearch.hppc.IntStack;
 import com.carrotsearch.hppc.ObjectIntHashMap;
@@ -30,10 +32,6 @@ import org.teavm.common.Graph;
 import org.teavm.common.GraphBuilder;
 import org.teavm.common.GraphUtils;
 import org.teavm.common.IntegerArray;
-import org.teavm.dependency.DependencyInfo;
-import org.teavm.dependency.FieldDependencyInfo;
-import org.teavm.dependency.MethodDependencyInfo;
-import org.teavm.dependency.ValueDependencyInfo;
 import org.teavm.model.BasicBlock;
 import org.teavm.model.ClassReaderSource;
 import org.teavm.model.Incoming;
@@ -65,7 +63,9 @@ import org.teavm.model.instructions.StringConstantInstruction;
 import org.teavm.model.instructions.UnwrapArrayInstruction;
 
 public class ClassInference {
-    private DependencyInfo dependencyInfo;
+    private InferenceModel inferenceModel;
+    private ClassReaderSource classSource;
+    private Program program;
     private Graph assignmentGraph;
     private Graph cloneGraph;
     private Graph arrayGraph;
@@ -81,6 +81,8 @@ public class ClassInference {
     private IntHashSet[] types;
     private ObjectIntMap<String> typeMap = new ObjectIntHashMap<>();
     private List<String> typeList = new ArrayList<>();
+    private IntObjectMap<List<ValueInferenceModel>> readNodes = new IntObjectHashMap<>();
+    private IntObjectMap<List<ValueInferenceModel>> writeNodes = new IntObjectHashMap<>();
 
     private boolean changed = true;
     private boolean[] nodeChanged;
@@ -88,11 +90,12 @@ public class ClassInference {
 
     private static final int MAX_DEGREE = 3;
 
-    public ClassInference(DependencyInfo dependencyInfo) {
-        this.dependencyInfo = dependencyInfo;
+    public ClassInference(InferenceModel inferenceModel, ClassReaderSource classSource) {
+        this.inferenceModel = inferenceModel;
+        this.classSource = classSource;
     }
 
-    public void infer(Program program, MethodReference methodReference) {
+    public void init(Program program, MethodReference methodReference) {
         /*
           The idea behind this algorithm
             1. Build preliminary graphs that represent different connection types between variables.
@@ -108,6 +111,7 @@ public class ClassInference {
             8. Repeat 7 until it changes anything (i.e. calculate fixed point).
         */
 
+        this.program = program;
         types = new IntHashSet[program.variableCount() << 3];
         nodeChanged = new boolean[types.length];
         formerNodeChanged = new boolean[nodeChanged.length];
@@ -117,25 +121,14 @@ public class ClassInference {
         }
 
         // See 1, 2, 3
-        MethodDependencyInfo thisMethodDep = dependencyInfo.getMethod(methodReference);
+        MethodInferenceModel thisMethodDep = inferenceModel.getMethod(methodReference);
         buildPreliminaryGraphs(program, thisMethodDep);
 
         // Augment (2) with input types of method
+        ValueInferenceModel[] parameterModels = thisMethodDep.createParameterModels();
         for (int i = 0; i <= methodReference.parameterCount(); ++i) {
-            ValueDependencyInfo paramDep = thisMethodDep.getVariable(i);
-            if (paramDep != null) {
-                int degree = 0;
-                while (degree <= MAX_DEGREE) {
-                    for (String paramType : paramDep.getTypes()) {
-                        addType(i, degree, paramType);
-                    }
-                    if (!paramDep.hasArrayType()) {
-                        break;
-                    }
-                    paramDep = paramDep.getArrayItem();
-                    degree++;
-                }
-            }
+            ValueInferenceModel paramDep = parameterModels[i];
+            readValue(paramDep, program.variableAt(i));
         }
 
         // See 4
@@ -146,11 +139,10 @@ public class ClassInference {
 
         // See 6
         buildPropagationPath();
+    }
 
-        // See 7, 8
-        propagate(program);
-
-        // Cleanup
+    public void dispose() {
+        program = null;
         assignmentGraph = null;
         graph = null;
         cloneGraph = null;
@@ -177,8 +169,8 @@ public class ClassInference {
         return types;
     }
 
-    private void buildPreliminaryGraphs(Program program, MethodDependencyInfo thisMethodDep) {
-        GraphBuildingVisitor visitor = new GraphBuildingVisitor(program.variableCount(), dependencyInfo);
+    private void buildPreliminaryGraphs(Program program, MethodInferenceModel thisMethodDep) {
+        GraphBuildingVisitor visitor = new GraphBuildingVisitor(program.variableCount(), inferenceModel);
         visitor.thisMethodDep = thisMethodDep;
         for (BasicBlock block : program.getBasicBlocks()) {
             visitor.currentBlock = block;
@@ -347,7 +339,7 @@ public class ClassInference {
         propagationPath = Arrays.copyOf(path, pathSize);
     }
 
-    private void propagate(Program program) {
+    public void propagate() {
         changed = false;
 
         while (true) {
@@ -360,8 +352,8 @@ public class ClassInference {
             do {
                 changed = false;
                 propagateAlongCasts();
-                propagateAlongVirtualCalls(program);
-                propagateAlongExceptions(program);
+                propagateAlongVirtualCalls();
+                propagateAlongExceptions();
                 if (changed) {
                     outerChanged = true;
                 }
@@ -402,8 +394,6 @@ public class ClassInference {
     }
 
     private void propagateAlongCasts() {
-        ClassReaderSource classSource = dependencyInfo.getClassSource();
-
         for (ValueCast cast : casts) {
             int fromNode = nodeMapping[packNodeAndDegree(cast.fromVariable, 0)];
             if (!formerNodeChanged[fromNode] && !nodeChanged[fromNode]) {
@@ -438,9 +428,7 @@ public class ClassInference {
         }
     }
 
-    private void propagateAlongVirtualCalls(Program program) {
-        ClassReaderSource classSource = dependencyInfo.getClassSource();
-
+    private void propagateAlongVirtualCalls() {
         for (VirtualCallSite callSite : virtualCallSites) {
             int instanceNode = nodeMapping[packNodeAndDegree(callSite.instance, 0)];
             if (!formerNodeChanged[instanceNode] && !nodeChanged[instanceNode]) {
@@ -465,15 +453,16 @@ public class ClassInference {
                     continue;
                 }
 
-                MethodDependencyInfo methodDep = dependencyInfo.getMethod(resolvedMethodRef);
+                MethodInferenceModel methodDep = inferenceModel.getMethod(resolvedMethodRef);
                 if (methodDep == null) {
                     continue;
                 }
                 if (callSite.receiver >= 0) {
-                    readValue(methodDep.getResult(), program.variableAt(callSite.receiver));
+                    readValue(methodDep.createReturnModel(), program.variableAt(callSite.receiver));
                 }
+                ValueInferenceModel[] parameterModels = methodDep.createParameterModels();
                 for (int i = 0; i < callSite.arguments.length; ++i) {
-                    writeValue(methodDep.getVariable(i + 1), program.variableAt(callSite.arguments[i]));
+                    writeValue(parameterModels[i + 1], program.variableAt(callSite.arguments[i]));
                 }
 
                 for (String thrownTypeName : methodDep.getThrown().getTypes()) {
@@ -483,7 +472,7 @@ public class ClassInference {
         }
     }
 
-    private void propagateAlongExceptions(Program program) {
+    private void propagateAlongExceptions() {
         for (int i = 0; i < exceptions.length; i += 2) {
             int variable = nodeMapping[packNodeAndDegree(exceptions[i], 0)];
             if (!formerNodeChanged[variable] && !nodeChanged[variable]) {
@@ -499,8 +488,6 @@ public class ClassInference {
     }
 
     private void propagateException(String thrownTypeName, BasicBlock block) {
-        ClassReaderSource classSource = dependencyInfo.getClassSource();
-
         for (TryCatchBlock tryCatch : block.getTryCatchBlocks()) {
             String expectedType = tryCatch.getExceptionType();
             if (expectedType == null || classSource.isSuperType(expectedType, thrownTypeName).orElse(false)) {
@@ -540,19 +527,19 @@ public class ClassInference {
     }
 
     class GraphBuildingVisitor extends AbstractInstructionVisitor {
-        DependencyInfo dependencyInfo;
+        InferenceModel inferenceModel;
         GraphBuilder assignmentGraphBuilder;
         GraphBuilder cloneGraphBuilder;
         GraphBuilder arrayGraphBuilder;
         GraphBuilder itemGraphBuilder;
-        MethodDependencyInfo thisMethodDep;
+        MethodInferenceModel thisMethodDep;
         List<ValueCast> casts = new ArrayList<>();
         IntegerArray exceptions = new IntegerArray(2);
         List<VirtualCallSite> virtualCallSites = new ArrayList<>();
         BasicBlock currentBlock;
 
-        GraphBuildingVisitor(int variableCount, DependencyInfo dependencyInfo) {
-            this.dependencyInfo = dependencyInfo;
+        GraphBuildingVisitor(int variableCount, InferenceModel inferenceModel) {
+            this.inferenceModel = inferenceModel;
             assignmentGraphBuilder = new GraphBuilder(variableCount);
             cloneGraphBuilder = new GraphBuilder(variableCount);
             arrayGraphBuilder = new GraphBuilder(variableCount);
@@ -613,16 +600,14 @@ public class ClassInference {
 
         @Override
         public void visit(GetFieldInstruction insn) {
-            FieldDependencyInfo fieldDep = dependencyInfo.getField(insn.getField());
-            ValueDependencyInfo valueDep = fieldDep.getValue();
-            readValue(valueDep, insn.getReceiver());
+            ValueInferenceModel fieldDep = inferenceModel.createFieldModel(insn.getField());
+            readValue(fieldDep, insn.getReceiver());
         }
 
         @Override
         public void visit(PutFieldInstruction insn) {
-            FieldDependencyInfo fieldDep = dependencyInfo.getField(insn.getField());
-            ValueDependencyInfo valueDep = fieldDep.getValue();
-            writeValue(valueDep, insn.getValue());
+            ValueInferenceModel fieldDep = inferenceModel.createFieldModel(insn.getField());
+            writeValue(fieldDep, insn.getValue());
         }
 
         @Override
@@ -648,15 +633,8 @@ public class ClassInference {
         @Override
         public void visit(ExitInstruction insn) {
             if (insn.getValueToReturn() != null) {
-                ValueDependencyInfo resultDependency = thisMethodDep.getResult();
-                int resultDegree = 0;
-                while (resultDependency.hasArrayType() && resultDegree <= MAX_DEGREE) {
-                    resultDependency = resultDependency.getArrayItem();
-                    for (String paramType : resultDependency.getTypes()) {
-                        addType(insn.getValueToReturn().getIndex(), resultDegree, paramType);
-                    }
-                    ++resultDegree;
-                }
+                ValueInferenceModel resultDependency = thisMethodDep.createReturnModel();
+                writeValue(resultDependency, insn.getValueToReturn());
             }
         }
 
@@ -688,14 +666,15 @@ public class ClassInference {
                 return;
             }
 
-            MethodDependencyInfo methodDep = dependencyInfo.getMethod(insn.getMethod());
+            MethodInferenceModel methodDep = inferenceModel.getMethod(insn.getMethod());
             if (methodDep != null) {
                 if (insn.getReceiver() != null) {
-                    readValue(methodDep.getResult(), insn.getReceiver());
+                    readValue(methodDep.createReturnModel(), insn.getReceiver());
                 }
 
+                ValueInferenceModel[] parameterModels = methodDep.createParameterModels();
                 for (int i = 0; i < insn.getArguments().size(); ++i) {
-                    writeValue(methodDep.getVariable(i + 1), insn.getArguments().get(i));
+                    writeValue(parameterModels[i + 1], insn.getArguments().get(i));
                 }
 
                 for (String type : methodDep.getThrown().getTypes()) {
@@ -715,7 +694,7 @@ public class ClassInference {
         int block;
     }
 
-    void readValue(ValueDependencyInfo valueDep, Variable receiver) {
+    void readValue(ValueInferenceModel valueDep, Variable receiver) {
         int depth = 0;
         boolean hasArrayType;
         do {
@@ -728,7 +707,7 @@ public class ClassInference {
         } while (hasArrayType && depth <= MAX_DEGREE);
     }
 
-    void writeValue(ValueDependencyInfo valueDep, Variable source) {
+    void writeValue(ValueInferenceModel valueDep, Variable source) {
         int depth = 0;
         while (valueDep.hasArrayType() && depth < MAX_DEGREE) {
             depth++;
@@ -757,18 +736,6 @@ public class ClassInference {
 
     static int packNodeAndDegree(int node, int degree) {
         return (node << 3) | degree;
-    }
-
-    static long packTwoIntegers(int a, int b) {
-        return ((long) a << 32) | b;
-    }
-
-    static int unpackFirst(long pair) {
-        return (int) (pair >>> 32);
-    }
-
-    static int unpackSecond(long pair) {
-        return (int) pair;
     }
 
     static final class ValueCast {

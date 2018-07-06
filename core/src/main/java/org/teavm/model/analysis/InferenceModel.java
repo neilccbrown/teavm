@@ -1,5 +1,5 @@
 /*
- *  Copyright 2012 Alexey Andreev.
+ *  Copyright 2018 Alexey Andreev.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -13,8 +13,13 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package org.teavm.dependency;
+package org.teavm.model.analysis;
 
-public interface TypePropagationListener {
-    void typeAdded(DependencyNode node, String type);
+import org.teavm.model.FieldReference;
+import org.teavm.model.MethodReference;
+
+public interface InferenceModel {
+    MethodInferenceModel getMethod(MethodReference method);
+
+    ValueInferenceModel createFieldModel(FieldReference field);
 }
