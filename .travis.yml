@@ -20,7 +20,8 @@ branches:
     - /^dev-.+/
 
 before_install:
-  - nvm install 7
+  - echo $TRAVIS_BRANCH
+  - if [[ "${TRAVIS_PULL_REQUEST:-unknown}" == "false" && $TRAVIS_BRANCH == travis* ]] ; then echo Condition holds; fi
   - OLD_VERSION=`mvn help:evaluate -Dexpression=project.version 2>/dev/null | grep -Ev "(^\[|Download)"`
   - BASE_VERSION=${OLD_VERSION%-SNAPSHOT}
   - NEW_VERSION=${BASE_VERSION}-dev-`printf %d $TRAVIS_BUILD_NUMBER`
