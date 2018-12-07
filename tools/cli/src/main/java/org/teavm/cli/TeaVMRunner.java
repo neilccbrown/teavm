@@ -29,10 +29,11 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.cli.PosixParser;
 import org.teavm.backend.wasm.render.WasmBinaryVersion;
+import org.teavm.tooling.ConsoleTeaVMToolLog;
 import org.teavm.tooling.TeaVMTargetType;
 import org.teavm.tooling.TeaVMTool;
 import org.teavm.tooling.TeaVMToolException;
-import org.teavm.tooling.util.InteractiveWatcher;
+import org.teavm.tooling.util.FileSystemWatcher;
 import org.teavm.vm.TeaVMOptimizationLevel;
 import org.teavm.vm.TeaVMPhase;
 import org.teavm.vm.TeaVMProgressFeedback;
@@ -41,7 +42,7 @@ import org.teavm.vm.TeaVMProgressListener;
 public final class TeaVMRunner {
     private static Options options = new Options();
     private TeaVMTool tool = new TeaVMTool();
-    private AccumulatingTeaVMToolLog log = new AccumulatingTeaVMToolLog(new ConsoleTeaVMToolLog());
+    private AccumulatingTeaVMToolLog log = new AccumulatingTeaVMToolLog(new ConsoleTeaVMToolLog(false));
     private CommandLine commandLine;
     private long startTime;
     private long phaseStartTime;
@@ -323,9 +324,9 @@ public final class TeaVMRunner {
     }
 
     private void buildInteractive() {
-        InteractiveWatcher watcher;
+        FileSystemWatcher watcher;
         try {
-            watcher = new InteractiveWatcher(classPath);
+            watcher = new FileSystemWatcher(classPath);
         } catch (IOException e) {
             System.err.println("Error listening file system events");
             e.printStackTrace();
@@ -395,10 +396,10 @@ public final class TeaVMRunner {
 
     class ProgressListenerImpl implements TeaVMProgressListener {
         private TeaVMPhase currentPhase;
-        private InteractiveWatcher interactiveWatcher;
+        private FileSystemWatcher fileSystemWatcher;
 
-        ProgressListenerImpl(InteractiveWatcher interactiveWatcher) {
-            this.interactiveWatcher = interactiveWatcher;
+        ProgressListenerImpl(FileSystemWatcher fileSystemWatcher) {
+            this.fileSystemWatcher = fileSystemWatcher;
         }
 
         @Override
@@ -438,7 +439,7 @@ public final class TeaVMRunner {
 
         private TeaVMProgressFeedback getStatus() {
             try {
-                if (interactiveWatcher != null && interactiveWatcher.hasChanges()) {
+                if (fileSystemWatcher != null && fileSystemWatcher.hasChanges()) {
                     System.out.println("Classes changed during compilation. Canceling.");
                     return TeaVMProgressFeedback.CANCEL;
                 }

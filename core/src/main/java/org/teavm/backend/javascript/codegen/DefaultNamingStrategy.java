@@ -131,17 +131,17 @@ public class DefaultNamingStrategy implements NamingStrategy {
         String initialCls = cls;
         while (!fieldExists(cls, field)) {
             ClassReader clsHolder = classSource.get(cls);
-            cls = clsHolder.getParent();
-            if (cls == null) {
+            if (clsHolder == null || clsHolder.getParent() == null) {
                 throw new NamingException("Can't provide name for field as the field not found: "
                         + initialCls + "." + field);
             }
+            cls = clsHolder.getParent();
         }
         return cls;
     }
 
     private boolean fieldExists(String cls, String field) {
         ClassReader classHolder = classSource.get(cls);
-        return classHolder.getField(field) != null;
+        return classHolder != null && classHolder.getField(field) != null;
     }
 }

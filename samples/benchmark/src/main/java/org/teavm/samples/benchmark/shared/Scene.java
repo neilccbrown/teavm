@@ -64,7 +64,7 @@ public class Scene {
         fixture.restitution = 0.4f;
         fixture.density = 1;
 
-        int parts = 30;
+        int parts = 25;
         for (int i = 0; i < parts; ++i) {
             PolygonShape shape = new PolygonShape();
             double angle1 = i / (double) parts * 2 * Math.PI;

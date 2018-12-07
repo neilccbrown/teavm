@@ -15,13 +15,13 @@
  */
 package org.teavm.idea.debug;
 
+import com.intellij.debugger.ui.breakpoints.JavaLineBreakpointType;
 import com.intellij.xdebugger.breakpoints.XLineBreakpointType;
 import org.jetbrains.java.debugger.breakpoints.properties.JavaLineBreakpointProperties;
-import org.jetbrains.kotlin.idea.debugger.breakpoints.KotlinLineBreakpointType;
 
 public class TeaVMKotlinBreakpointProvider implements TeaVMBreakpointProvider<JavaLineBreakpointProperties> {
     @Override
     public Class<? extends XLineBreakpointType<JavaLineBreakpointProperties>> getBreakpointType() {
-        return KotlinLineBreakpointType.class;
+        return JavaLineBreakpointType.class;
     }
 }

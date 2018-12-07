@@ -23,28 +23,97 @@ import java.net.URLClassLoader;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.teavm.backend.javascript.JavaScriptTarget;
+import org.teavm.cache.InMemoryMethodNodeCache;
+import org.teavm.cache.InMemoryProgramCache;
+import org.teavm.cache.MemoryCachedClassReaderSource;
 import org.teavm.dependency.FastDependencyAnalyzer;
-import org.teavm.model.ClassReaderSource;
+import org.teavm.model.ClassReader;
 import org.teavm.model.PreOptimizingClassHolderSource;
 import org.teavm.parsing.ClasspathClassHolderSource;
-import org.teavm.tooling.util.InteractiveWatcher;
+import org.teavm.tooling.EmptyTeaVMToolLog;
+import org.teavm.tooling.TeaVMProblemRenderer;
+import org.teavm.tooling.TeaVMToolLog;
+import org.teavm.tooling.util.FileSystemWatcher;
+import org.teavm.vm.MemoryBuildTarget;
 import org.teavm.vm.TeaVM;
 import org.teavm.vm.TeaVMBuilder;
+import org.teavm.vm.TeaVMOptimizationLevel;
+import org.teavm.vm.TeaVMPhase;
+import org.teavm.vm.TeaVMProgressFeedback;
+import org.teavm.vm.TeaVMProgressListener;
 
 public class CodeServlet extends HttpServlet {
-    private volatile boolean stopped;
+    private String mainClass;
     private String[] classPath;
-    private InteractiveWatcher watcher;
-    private MutableCacheStatus cacheStatus = new MutableCacheStatus();
+    private String fileName = "classes.js";
+    private String pathToFile = "/";
+    private TeaVMToolLog log = new EmptyTeaVMToolLog();
+
+    private volatile boolean stopped;
+    private FileSystemWatcher watcher;
+    private ClassLoader classLoader;
+    private MemoryCachedClassReaderSource classSource;
+    private InMemoryProgramCache programCache;
+    private InMemoryMethodNodeCache astCache;
+
+    private final Object contentLock = new Object();
+    private final Map<String, byte[]> content = new HashMap<>();
+    private MemoryBuildTarget buildTarget = new MemoryBuildTarget();
+
+    public CodeServlet(String mainClass, String[] classPath) {
+        this.mainClass = mainClass;
+        this.classPath = classPath.clone();
+    }
+
+    public void setFileName(String fileName) {
+        this.fileName = fileName;
+    }
+
+    public void setPathToFile(String pathToFile) {
+        if (!pathToFile.endsWith("/")) {
+            pathToFile += "/";
+        }
+        if (!pathToFile.startsWith("/")) {
+            pathToFile = "/" + pathToFile;
+        }
+        this.pathToFile = pathToFile;
+    }
+
+    public void setLog(TeaVMToolLog log) {
+        this.log = log;
+    }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        String path = req.getPathInfo();
+        if (path != null) {
+            if (!path.startsWith("/")) {
+                path = "/" + path;
+            }
+            if (path.startsWith(pathToFile) && path.length() > pathToFile.length()) {
+                String fileName = path.substring(pathToFile.length());
+                byte[] fileContent;
+                synchronized (contentLock) {
+                    fileContent = content.get(fileName);
+                }
+                if (fileContent != null) {
+                    resp.setStatus(HttpServletResponse.SC_OK);
+                    resp.setCharacterEncoding("UTF-8");
+                    resp.setContentType("text/plain");
+                    resp.getOutputStream().write(fileContent);
+                    resp.getOutputStream().flush();
+                    return;
+                }
+            }
+        }
         super.doGet(req, resp);
     }
 
@@ -65,29 +134,130 @@ public class CodeServlet extends HttpServlet {
 
     private void runTeaVM() {
         try {
-            watcher = new InteractiveWatcher(classPath);
-
-            ClassLoader classLoader = initClassLoader();
-            ClassReaderSource classSource = new PreOptimizingClassHolderSource(
-                    new ClasspathClassHolderSource(classLoader));
+            initBuilder();
 
             while (!stopped) {
-                JavaScriptTarget jsTarget = new JavaScriptTarget();
+                buildOnce();
+                classSource.commit();
 
-                TeaVM vm = new TeaVMBuilder(jsTarget)
-                        .setClassLoader(classLoader)
-                        .setClassSource(classSource)
-                        .setDependencyAnalyzerFactory(FastDependencyAnalyzer::new)
-                        .build();
+                if (stopped) {
+                    break;
+                }
 
-                cacheStatus.makeFresh(vm.getClasses());
-
-                watcher.waitForChange(750);
-                System.out.println("Changes detected. Recompiling.");
-                cacheStatus.makeStale(getChangedClasses(watcher.grabChangedFiles()));
+                try {
+                    watcher.waitForChange(750);
+                } catch (InterruptedException e) {
+                    log.info("Build thread interrupted");
+                    break;
+                }
+                log.info("Changes detected. Recompiling.");
+                List<String> staleClasses = getChangedClasses(watcher.grabChangedFiles());
+                log.debug("Following classes changed: " + staleClasses);
+                classSource.evict(staleClasses);
             }
         } catch (Throwable e) {
-            e.printStackTrace();
+            log.error("Compile server crashed", e);
+        } finally {
+            shutdownBuilder();
+        }
+    }
+
+    private void initBuilder() throws IOException {
+        watcher = new FileSystemWatcher(classPath);
+
+        classLoader = initClassLoader();
+        classSource = new MemoryCachedClassReaderSource(new PreOptimizingClassHolderSource(
+                new ClasspathClassHolderSource(classLoader)));
+        astCache = new InMemoryMethodNodeCache();
+        programCache = new InMemoryProgramCache();
+    }
+
+    private void shutdownBuilder() {
+        try {
+            watcher.dispose();
+        } catch (IOException e) {
+            log.debug("Exception caught", e);
+        }
+        classSource = null;
+        watcher = null;
+        classLoader = null;
+        astCache = null;
+        programCache = null;
+        synchronized (content) {
+            content.clear();
+        }
+        buildTarget.clear();
+
+        log.info("Build thread complete");
+    }
+
+    private void buildOnce() {
+        long startTime = System.currentTimeMillis();
+        JavaScriptTarget jsTarget = new JavaScriptTarget();
+
+        TeaVM vm = new TeaVMBuilder(jsTarget)
+                .setClassLoader(classLoader)
+                .setClassSource(classSource)
+                .setDependencyAnalyzerFactory(FastDependencyAnalyzer::new)
+                .build();
+
+        jsTarget.setStackTraceIncluded(true);
+        jsTarget.setMinifying(false);
+        jsTarget.setAstCache(astCache);
+        vm.setOptimizationLevel(TeaVMOptimizationLevel.SIMPLE);
+        vm.setCacheStatus(classSource);
+        vm.addVirtualMethods(m -> true);
+        vm.setProgressListener(progressListener);
+        vm.setProgramCache(programCache);
+        vm.installPlugins();
+
+        vm.entryPoint(mainClass);
+
+        log.info("Starting build");
+        vm.build(buildTarget, fileName);
+
+        postBuild(vm, startTime);
+    }
+
+    private void postBuild(TeaVM vm, long startTime) {
+        if (!vm.wasCancelled()) {
+            if (vm.getProblemProvider().getSevereProblems().isEmpty()) {
+                log.info("Build complete successfully");
+                saveNewResult();
+            } else {
+                log.info("Build complete with errors");
+            }
+            printStats(vm, startTime);
+            TeaVMProblemRenderer.describeProblems(vm, log);
+        } else {
+            log.info("Build cancelled");
+        }
+
+        buildTarget.clear();
+    }
+
+    private void printStats(TeaVM vm, long startTime) {
+        if (vm.getWrittenClasses() != null) {
+            int classCount = vm.getWrittenClasses().getClassNames().size();
+            int methodCount = 0;
+            for (String className : vm.getWrittenClasses().getClassNames()) {
+                ClassReader cls = vm.getWrittenClasses().get(className);
+                methodCount += cls.getMethods().size();
+            }
+
+            log.info("Classes compiled: " + classCount);
+            log.info("Methods compiled: " + methodCount);
+        }
+
+        log.info("Compilation took " + (System.currentTimeMillis() - startTime) + " ms");
+    }
+
+    private void saveNewResult() {
+        synchronized (contentLock) {
+            content.clear();
+            for (String name : buildTarget.getNames()) {
+                content.put(name, buildTarget.getContent(name));
+            }
         }
     }
 
@@ -105,7 +275,6 @@ public class CodeServlet extends HttpServlet {
                     .findFirst()
                     .orElse("");
             int start = prefix.length();
-            path = path.substring(prefix.length());
             if (start < path.length() && path.charAt(start) == '/') {
                 ++start;
             }
@@ -128,4 +297,35 @@ public class CodeServlet extends HttpServlet {
         }
         return new URLClassLoader(urls, CodeServlet.class.getClassLoader());
     }
+
+    private TeaVMProgressListener progressListener = new TeaVMProgressListener() {
+        @Override
+        public TeaVMProgressFeedback phaseStarted(TeaVMPhase phase, int count) {
+            return getResult();
+        }
+
+        @Override
+        public TeaVMProgressFeedback progressReached(int progress) {
+            return getResult();
+        }
+
+        private TeaVMProgressFeedback getResult() {
+            if (stopped) {
+                log.info("Trying to cancel compilation due to server stopping");
+                return TeaVMProgressFeedback.CANCEL;
+            }
+
+            try {
+                if (watcher.hasChanges()) {
+                    log.info("Changes detected, cancelling build");
+                    return TeaVMProgressFeedback.CANCEL;
+                }
+            } catch (IOException e) {
+                log.info("IO error occurred", e);
+                return TeaVMProgressFeedback.CANCEL;
+            }
+
+            return TeaVMProgressFeedback.CONTINUE;
+        }
+    };
 }

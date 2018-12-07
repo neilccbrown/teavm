@@ -34,13 +34,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-public class InteractiveWatcher {
+public class FileSystemWatcher {
     private WatchService watchService;
     private Map<WatchKey, Path> keysToPath = new HashMap<>();
     private Map<Path, WatchKey> pathsToKey = new HashMap<>();
     private List<File> changedFiles = new ArrayList<>();
 
-    public InteractiveWatcher(String[] classPath) throws IOException {
+    public FileSystemWatcher(String[] classPath) throws IOException {
         watchService = FileSystems.getDefault().newWatchService();
         for (String entry : classPath) {
             Path path = Paths.get(entry);
@@ -53,6 +53,10 @@ public class InteractiveWatcher {
                 }
             }
         }
+    }
+
+    public void dispose() throws IOException {
+        watchService.close();
     }
 
     private void register(Path path) throws IOException {
@@ -77,7 +81,9 @@ public class InteractiveWatcher {
     }
 
     public void waitForChange(int timeout) throws InterruptedException, IOException {
-        take();
+        if (!hasChanges()) {
+            take();
+        }
         while (poll(timeout)) {
             // continue polling
         }
@@ -92,13 +98,11 @@ public class InteractiveWatcher {
         return result;
     }
 
-    private boolean take() throws InterruptedException, IOException {
+    private void take() throws InterruptedException, IOException {
         while (true) {
             WatchKey key = watchService.take();
-            if (key != null) {
-                if (filter(key)) {
-                    return true;
-                }
+            if (key != null && filter(key)) {
+                return;
             }
         }
     }
@@ -107,15 +111,17 @@ public class InteractiveWatcher {
         long end = System.currentTimeMillis() + milliseconds;
         while (true) {
             int timeToWait = (int) (end - System.currentTimeMillis());
-            WatchKey key = watchService.poll(timeToWait, TimeUnit.MILLISECONDS);
-            if (key == null) {
+            if (timeToWait <= 0) {
                 return false;
             }
+            WatchKey key = watchService.poll(timeToWait, TimeUnit.MILLISECONDS);
+            if (key == null) {
+                continue;
+            }
             if (filter(key)) {
-                break;
+                return true;
             }
         }
-        return true;
     }
 
     private boolean pollNow() throws IOException {
@@ -159,6 +165,6 @@ public class InteractiveWatcher {
             }
         }
 
-        return path;
+        return path.toFile().isFile() ? path : null;
     }
 }
