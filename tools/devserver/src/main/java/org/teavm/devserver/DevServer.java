@@ -47,6 +47,8 @@ public class DevServer {
     private Server server;
     private int port = 9090;
     private int debugPort;
+    private String proxyUrl;
+    private String proxyPath = "/";
 
     public void setMainClass(String mainClass) {
         this.mainClass = mainClass;
@@ -90,6 +92,14 @@ public class DevServer {
         this.reloadedAutomatically = reloadedAutomatically;
     }
 
+    public void setProxyUrl(String proxyUrl) {
+        this.proxyUrl = proxyUrl;
+    }
+
+    public void setProxyPath(String proxyPath) {
+        this.proxyPath = proxyPath;
+    }
+
     public List<String> getSourcePath() {
         return sourcePath;
     }
@@ -128,10 +138,14 @@ public class DevServer {
         servlet.setAutomaticallyReloaded(reloadedAutomatically);
         servlet.setPort(port);
         servlet.setDebugPort(debugPort);
+        servlet.setProxyUrl(proxyUrl);
+        servlet.setProxyPath(proxyPath);
         for (DevServerListener listener : listeners) {
             servlet.addListener(listener);
         }
-        context.addServlet(new ServletHolder(servlet), "/*");
+        ServletHolder servletHolder = new ServletHolder(servlet);
+        servletHolder.setAsyncSupported(true);
+        context.addServlet(servletHolder, "/*");
 
         try {
             ServerContainer wscontainer = WebSocketServerContainerInitializer.configureContext(context);

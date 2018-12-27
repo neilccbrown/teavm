@@ -27,10 +27,13 @@ import java.io.Writer;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.channels.Channels;
+import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -40,11 +43,17 @@ import java.util.function.Supplier;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
+import javax.servlet.AsyncContext;
+import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.io.IOUtils;
+import org.eclipse.jetty.client.HttpClient;
+import org.eclipse.jetty.client.api.Request;
+import org.eclipse.jetty.client.util.InputStreamContentProvider;
+import org.eclipse.jetty.http.HttpField;
 import org.teavm.backend.javascript.JavaScriptTarget;
 import org.teavm.cache.InMemoryMethodNodeCache;
 import org.teavm.cache.InMemoryProgramCache;
@@ -80,6 +89,8 @@ public class CodeServlet extends HttpServlet {
     private boolean automaticallyReloaded;
     private int port;
     private int debugPort;
+    private String proxyUrl;
+    private String proxyPath = "/";
 
     private Map<String, Supplier<InputStream>> sourceFileCache = new HashMap<>();
 
@@ -103,10 +114,14 @@ public class CodeServlet extends HttpServlet {
     private boolean waiting;
     private Thread buildThread;
     private List<DevServerListener> listeners = new ArrayList<>();
+    private HttpClient httpClient;
 
     public CodeServlet(String mainClass, String[] classPath) {
         this.mainClass = mainClass;
         this.classPath = classPath.clone();
+
+        httpClient = new HttpClient();
+        httpClient.setFollowRedirects(false);
     }
 
     public void setFileName(String fileName) {
@@ -114,13 +129,7 @@ public class CodeServlet extends HttpServlet {
     }
 
     public void setPathToFile(String pathToFile) {
-        if (!pathToFile.endsWith("/")) {
-            pathToFile += "/";
-        }
-        if (!pathToFile.startsWith("/")) {
-            pathToFile = "/" + pathToFile;
-        }
-        this.pathToFile = pathToFile;
+        this.pathToFile = normalizePath(pathToFile);
     }
 
     public List<String> getSourcePath() {
@@ -145,6 +154,14 @@ public class CodeServlet extends HttpServlet {
 
     public void setAutomaticallyReloaded(boolean automaticallyReloaded) {
         this.automaticallyReloaded = automaticallyReloaded;
+    }
+
+    public void setProxyUrl(String proxyUrl) {
+        this.proxyUrl = proxyUrl;
+    }
+
+    public void setProxyPath(String proxyPath) {
+        this.proxyPath = normalizePath(proxyPath);
     }
 
     public void addWsEndpoint(CodeWsEndpoint endpoint) {
@@ -201,14 +218,27 @@ public class CodeServlet extends HttpServlet {
     }
 
     @Override
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+    public void init(ServletConfig config) throws ServletException {
+        super.init(config);
+
+        if (proxyUrl != null) {
+            try {
+                httpClient.start();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
+    @Override
+    protected void service(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String path = req.getPathInfo();
         if (path != null) {
             log.debug("Serving " + path);
             if (!path.startsWith("/")) {
                 path = "/" + path;
             }
-            if (path.startsWith(pathToFile) && path.length() > pathToFile.length()) {
+            if (req.getMethod().equals("GET") && path.startsWith(pathToFile) && path.length() > pathToFile.length()) {
                 String fileName = path.substring(pathToFile.length());
                 if (fileName.startsWith("src/")) {
                     if (serveSourceFile(fileName.substring("src/".length()), resp)) {
@@ -236,10 +266,68 @@ public class CodeServlet extends HttpServlet {
                     }
                 }
             }
+
+            if (proxyUrl != null && path.startsWith(proxyPath)) {
+                proxy(req, resp, path);
+                return;
+            }
         }
 
         log.debug("File " + path + " not found");
         resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
+    }
+
+    private void proxy(HttpServletRequest req, HttpServletResponse resp, String path) throws IOException {
+        AsyncContext async = req.startAsync();
+
+        String relPath = path.substring(proxyPath.length());
+        StringBuilder sb = new StringBuilder(proxyUrl);
+        if (!relPath.isEmpty() && !proxyUrl.endsWith("/")) {
+            sb.append("/");
+        }
+        sb.append(relPath);
+
+        if (req.getQueryString() != null) {
+            sb.append("?").append(req.getQueryString());
+        }
+        log.debug("Trying to serve '" + relPath + "' from '" + sb + "'");
+
+        Request proxyReq = httpClient.newRequest(sb.toString());
+        proxyReq.method(req.getMethod());
+        Enumeration<String> headers = req.getHeaderNames();
+        while (headers.hasMoreElements()) {
+            String header = headers.nextElement();
+            Enumeration<String> values = req.getHeaders(header);
+            while (values.hasMoreElements()) {
+                proxyReq.header(header, values.nextElement());
+            }
+        }
+
+        proxyReq.content(new InputStreamContentProvider(req.getInputStream()));
+        proxyReq.send(result -> {
+            if (result.getResponse().getStatus() <= 0) {
+                resp.setStatus(404);
+                async.complete();
+                return;
+            }
+            resp.setStatus(result.getResponse().getStatus());
+
+            for (HttpField field : result.getResponse().getHeaders()) {
+                for (String value : field.getValues()) {
+                    resp.addHeader(field.getName(), value);
+                }
+            }
+        });
+        proxyReq.onResponseContent((response, responseContent) -> {
+            try {
+                WritableByteChannel channel = Channels.newChannel(resp.getOutputStream());
+                channel.write(responseContent);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+
+            async.complete();
+        });
     }
 
     @Override
@@ -724,5 +812,15 @@ public class CodeServlet extends HttpServlet {
 
             return TeaVMProgressFeedback.CONTINUE;
         }
+    }
+
+    static String normalizePath(String path) {
+        if (!path.endsWith("/")) {
+            path += "/";
+        }
+        if (!path.startsWith("/")) {
+            path = "/" + path;
+        }
+        return path;
     }
 }
