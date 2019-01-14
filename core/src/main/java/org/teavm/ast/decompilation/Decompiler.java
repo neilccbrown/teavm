@@ -67,6 +67,7 @@ import org.teavm.model.Program;
 import org.teavm.model.TextLocation;
 import org.teavm.model.TryCatchBlock;
 import org.teavm.model.ValueType;
+import org.teavm.model.instructions.JumpInstruction;
 import org.teavm.model.text.ListingBuilder;
 import org.teavm.model.util.AsyncProgramSplitter;
 import org.teavm.model.util.ProgramUtils;
@@ -393,7 +394,10 @@ public class Decompiler {
                 generator.nextBlock = tmp >= 0 && next < indexer.size() ? program.basicBlockAt(tmp) : null;
             }
 
-            closeExpiredBookmarks(generator, node, generator.currentBlock.getTryCatchBlocks());
+            if (generator.currentBlock.instructionCount() > 1
+                    || !(generator.currentBlock.getLastInstruction() instanceof JumpInstruction)) {
+                closeExpiredBookmarks(generator, node, generator.currentBlock.getTryCatchBlocks());
+            }
 
             List<TryCatchBookmark> inheritedBookmarks = new ArrayList<>();
             Block block = stack.peek();
@@ -502,19 +506,6 @@ public class Decompiler {
         Collections.reverse(removedBookmarks);
         for (TryCatchBookmark bookmark : removedBookmarks) {
             Block block = stack.peek();
-            while (block != bookmark.block) {
-                TryCatchStatement tryCatchStmt = new TryCatchStatement();
-                tryCatchStmt.setExceptionType(bookmark.exceptionType);
-                tryCatchStmt.setExceptionVariable(bookmark.exceptionVariable);
-                tryCatchStmt.getHandler().add(generator.generateJumpStatement(
-                        program.basicBlockAt(bookmark.exceptionHandler)));
-                tryCatchStmt.getProtectedBody().addAll(block.body);
-                block.body.clear();
-                if (!tryCatchStmt.getProtectedBody().isEmpty()) {
-                    block.body.add(tryCatchStmt);
-                }
-                block = block.parent;
-            }
             TryCatchStatement tryCatchStmt = new TryCatchStatement();
             tryCatchStmt.setExceptionType(bookmark.exceptionType);
             tryCatchStmt.setExceptionVariable(bookmark.exceptionVariable);
