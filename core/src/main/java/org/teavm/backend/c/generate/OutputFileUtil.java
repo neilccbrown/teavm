@@ -15,7 +15,10 @@
  */
 package org.teavm.backend.c.generate;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
@@ -26,9 +29,45 @@ public final class OutputFileUtil {
     }
 
     public static void write(BufferedCodeWriter code, String name, BuildTarget buildTarget) throws IOException {
+        ByteArrayOutputStream tmpOut = new ByteArrayOutputStream();
         try (PrintWriter writer = new PrintWriter(new OutputStreamWriter(
-                buildTarget.createResource(name), StandardCharsets.UTF_8))) {
+                tmpOut, StandardCharsets.UTF_8))) {
             code.writeTo(writer);
         }
+
+        byte[] bytes = tmpOut.toByteArray();
+        if (!isChanged(buildTarget, name, bytes)) {
+            return;
+        }
+
+        try (OutputStream output = buildTarget.createResource(name)) {
+            output.write(bytes);
+        }
+    }
+
+    private static boolean isChanged(BuildTarget buildTarget, String name, byte[] data) throws IOException {
+        InputStream input = buildTarget.readResource(name);
+        if (input == null) {
+            return true;
+        }
+
+        byte[] buffer = new byte[4096];
+        int index = 0;
+        while (true) {
+            int bytesRead = input.read(buffer);
+            if (bytesRead < 0) {
+                break;
+            }
+            if (bytesRead + index > data.length) {
+                return true;
+            }
+            for (int i = 0; i < bytesRead; ++i) {
+                if (buffer[i] != data[index++]) {
+                    return true;
+                }
+            }
+        }
+
+        return index < data.length;
     }
 }

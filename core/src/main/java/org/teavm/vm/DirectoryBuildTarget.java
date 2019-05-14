@@ -15,10 +15,13 @@
  */
 package org.teavm.vm;
 
+import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 
 public class DirectoryBuildTarget implements BuildTarget {
@@ -38,5 +41,14 @@ public class DirectoryBuildTarget implements BuildTarget {
             }
         }
         return new BufferedOutputStream(new FileOutputStream(new File(directory, fileName)), 65536);
+    }
+
+    @Override
+    public InputStream readResource(String fileName) throws IOException {
+        File file = new File(directory, fileName);
+        if (!file.exists()) {
+            return null;
+        }
+        return new BufferedInputStream(new FileInputStream(file), 65536);
     }
 }

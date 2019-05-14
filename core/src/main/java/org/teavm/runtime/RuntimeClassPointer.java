@@ -1,5 +1,5 @@
 /*
- *  Copyright 2014 Alexey Andreev.
+ *  Copyright 2019 Alexey Andreev.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -13,14 +13,10 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package org.teavm.vm;
+package org.teavm.runtime;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import org.teavm.interop.Structure;
 
-public interface BuildTarget {
-    OutputStream createResource(String fileName) throws IOException;
-
-    InputStream readResource(String fileName) throws IOException;
+public class RuntimeClassPointer extends Structure {
+    public RuntimeClass value;
 }

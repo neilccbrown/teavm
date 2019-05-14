@@ -18,19 +18,18 @@ package org.teavm.backend.c;
 import com.carrotsearch.hppc.ObjectByteHashMap;
 import com.carrotsearch.hppc.ObjectByteMap;
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.teavm.ast.InvocationExpr;
@@ -141,10 +140,17 @@ public class CTarget implements TeaVMTarget, TeaVMCHost {
     private int minHeapSize = 32 * 1024 * 1024;
     private List<IntrinsicFactory> intrinsicFactories = new ArrayList<>();
     private List<GeneratorFactory> generatorFactories = new ArrayList<>();
+    private Characteristics characteristics;
+    private Map<String, ShadowStackTransformer> shadowStackTransformersByClass = new HashMap<>();
     private Set<MethodReference> asyncMethods;
+    private boolean incremental;
 
     public void setMinHeapSize(int minHeapSize) {
         this.minHeapSize = minHeapSize;
+    }
+
+    public void setIncremental(boolean incremental) {
+        this.incremental = incremental;
     }
 
     @Override
@@ -163,7 +169,7 @@ public class CTarget implements TeaVMTarget, TeaVMCHost {
     @Override
     public void setController(TeaVMTargetController controller) {
         this.controller = controller;
-        Characteristics characteristics = new Characteristics(controller.getUnprocessedClassSource());
+        characteristics = new Characteristics(controller.getUnprocessedClassSource());
         classInitializerEliminator = new ClassInitializerEliminator(controller.getUnprocessedClassSource());
         classInitializerTransformer = new ClassInitializerTransformer();
         shadowStackTransformer = new ShadowStackTransformer(characteristics);
@@ -273,7 +279,15 @@ public class CTarget implements TeaVMTarget, TeaVMCHost {
         nullCheckTransformation.apply(program, method.getResultType());
         new CoroutineTransformation(controller.getUnprocessedClassSource(), asyncMethods)
                 .apply(program, method.getReference());
-        shadowStackTransformer.apply(program, method);
+        getShadowStackTransformer(method.getOwnerName()).apply(program, method);
+    }
+
+    private ShadowStackTransformer getShadowStackTransformer(String className) {
+        if (!incremental) {
+            return shadowStackTransformer;
+        }
+        return shadowStackTransformersByClass.computeIfAbsent(className,
+                c -> new ShadowStackTransformer(characteristics));
     }
 
     @Override
@@ -313,11 +327,17 @@ public class CTarget implements TeaVMTarget, TeaVMCHost {
 
         GenerationContext context = new GenerationContext(vtableProvider, characteristics,
                 controller.getDependencyInfo(), stringPool, nameProvider, controller.getDiagnostics(), classes,
-                intrinsics, generators, asyncMethods::contains, buildTarget);
+                intrinsics, generators, asyncMethods::contains, buildTarget, incremental);
 
         BufferedCodeWriter runtimeWriter = new BufferedCodeWriter();
-        copyResource("runtime.h", "runtime.h", buildTarget);
+        BufferedCodeWriter runtimeHeaderWriter = new BufferedCodeWriter();
         emitResource(runtimeWriter, "runtime.c");
+
+        runtimeHeaderWriter.println("#pragma once");
+        if (incremental) {
+            runtimeHeaderWriter.println("#define TEAVM_INCREMENTAL true");
+        }
+        emitResource(runtimeHeaderWriter, "runtime.h");
 
         ClassGenerator classGenerator = new ClassGenerator(context, controller.getUnprocessedClassSource(),
                 tagRegistry, decompiler);
@@ -334,6 +354,7 @@ public class CTarget implements TeaVMTarget, TeaVMCHost {
         generateClasses(classes, classGenerator, buildTarget);
         generateSpecialFunctions(context, runtimeWriter);
         OutputFileUtil.write(runtimeWriter, "runtime.c", buildTarget);
+        OutputFileUtil.write(runtimeHeaderWriter, "runtime.h", buildTarget);
 
         generateCallSites(buildTarget, context);
         generateStrings(buildTarget, stringPool);
@@ -362,25 +383,6 @@ public class CTarget implements TeaVMTarget, TeaVMCHost {
         }
     }
 
-    private void copyResource(String resourceName, String targetName, BuildTarget buildTarget) {
-        ClassLoader classLoader = CTarget.class.getClassLoader();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                classLoader.getResourceAsStream("org/teavm/backend/c/" + resourceName)));
-            BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
-                    buildTarget.createResource(targetName), StandardCharsets.UTF_8))) {
-            while (true) {
-                String line = reader.readLine();
-                if (line == null) {
-                    break;
-                }
-                writer.write(line);
-                writer.write('\n');
-            }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
     private void generateClasses(ListableClassHolderSource classes, ClassGenerator classGenerator,
             BuildTarget buildTarget) throws IOException {
         List<String> classNames = sortClassNames(classes);
@@ -392,7 +394,7 @@ public class CTarget implements TeaVMTarget, TeaVMCHost {
             BufferedCodeWriter headerWriter = new BufferedCodeWriter();
             ClassHolder cls = classes.get(className);
             if (cls != null) {
-                classGenerator.generateClass(writer, headerWriter, cls);
+                classGenerator.generateClass(writer, headerWriter, cls, getShadowStackTransformer(className));
             }
             String name = ClassGenerator.fileName(className);
             OutputFileUtil.write(writer, name + ".c", buildTarget);
@@ -458,13 +460,30 @@ public class CTarget implements TeaVMTarget, TeaVMCHost {
         headerIncludes.includePath("runtime.h");
         headerIncludes.includeClass(CallSiteGenerator.CALL_SITE);
 
-        String callSiteName = context.getNames().forClass(CallSiteGenerator.CALL_SITE);
-        headerWriter.println("extern " + callSiteName + " teavm_callSites[];");
-
-        new CallSiteGenerator(context, writer, includes).generate(shadowStackTransformer.getCallSites());
+        if (incremental) {
+            generateIncrementalCallSites(context, headerWriter);
+        } else {
+            generateFastCallSites(context, writer, includes, headerWriter);
+        }
 
         OutputFileUtil.write(writer, "callsites.c", buildTarget);
         OutputFileUtil.write(headerWriter, "callsites.h", buildTarget);
+    }
+
+    private void generateFastCallSites(GenerationContext context, CodeWriter writer, IncludeManager includes,
+            CodeWriter headerWriter) {
+        String callSiteName = context.getNames().forClass(CallSiteGenerator.CALL_SITE);
+        headerWriter.println("extern " + callSiteName + " teavm_callSites[];");
+        headerWriter.println("#define TEAVM_FIND_CALLSITE(id, frame) (teavm_callSites + id)");
+
+        new CallSiteGenerator(context, writer, includes, "teavm_callSites")
+                .generate(shadowStackTransformer.getCallSites());
+    }
+
+    private void generateIncrementalCallSites(GenerationContext context, CodeWriter headerWriter) {
+        String callSiteName = context.getNames().forClass(CallSiteGenerator.CALL_SITE);
+        headerWriter.println("#define TEAVM_FIND_CALLSITE(id, frame) (((" + callSiteName
+                + "*) ((void**) frame)[3]) + id)");
     }
 
     private void generateStrings(BuildTarget buildTarget, StringPool stringPool) throws IOException {

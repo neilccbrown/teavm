@@ -1016,6 +1016,11 @@ public class CodeGenerationVisitor implements ExprVisitor, StatementVisitor {
             ClassGenerator.escape(name, sb);
             return sb.toString();
         }
+
+        @Override
+        public boolean isIncremental() {
+            return context.isIncremental();
+        }
     };
 
     private static CVariableType typeToCType(ValueType type) {

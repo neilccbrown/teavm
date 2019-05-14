@@ -18,6 +18,8 @@ package org.teavm.incremental;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -336,6 +338,11 @@ public class IncrementalTest {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             fs.put(fileName, out);
             return out;
+        }
+
+        @Override
+        public InputStream readResource(String fileName) throws IOException {
+            return null;
         }
     }
 }

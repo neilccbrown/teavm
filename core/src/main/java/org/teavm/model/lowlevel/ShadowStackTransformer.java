@@ -16,6 +16,7 @@
 package org.teavm.model.lowlevel;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import org.teavm.model.BasicBlock;
 import org.teavm.model.Incoming;
@@ -36,13 +37,14 @@ public class ShadowStackTransformer {
     private Characteristics managedMethodRepository;
     private GCShadowStackContributor gcContributor;
     private List<CallSiteDescriptor> callSites = new ArrayList<>();
+    private List<? extends CallSiteDescriptor> readonlyCallSites = Collections.unmodifiableList(callSites);
 
     public ShadowStackTransformer(Characteristics managedMethodRepository) {
         gcContributor = new GCShadowStackContributor(managedMethodRepository);
         this.managedMethodRepository = managedMethodRepository;
     }
 
-    public List<CallSiteDescriptor> getCallSites() {
+    public List<? extends CallSiteDescriptor> getCallSites() {
         return callSites;
     }
 

@@ -17,6 +17,7 @@ package org.teavm.vm;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -41,7 +42,7 @@ public class MemoryBuildTarget implements BuildTarget {
     }
 
     @Override
-    public OutputStream createResource(String fileName) throws IOException {
+    public OutputStream createResource(String fileName) {
         ByteArrayOutputStream stream = new ByteArrayOutputStream();
         data.put(fileName, stream);
         return stream;
@@ -49,5 +50,10 @@ public class MemoryBuildTarget implements BuildTarget {
 
     public OutputStream appendToResource(String fileName) {
         return data.computeIfAbsent(fileName, k -> new ByteArrayOutputStream());
+    }
+
+    @Override
+    public InputStream readResource(String fileName) throws IOException {
+        return null;
     }
 }

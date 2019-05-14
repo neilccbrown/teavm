@@ -18,6 +18,7 @@ package org.teavm.backend.c.generate;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -57,7 +58,10 @@ import org.teavm.model.instructions.ConstructInstruction;
 import org.teavm.model.instructions.ConstructMultiArrayInstruction;
 import org.teavm.model.instructions.InstructionVisitor;
 import org.teavm.model.instructions.StringConstantInstruction;
+import org.teavm.model.lowlevel.CallSiteDescriptor;
 import org.teavm.model.lowlevel.Characteristics;
+import org.teavm.model.lowlevel.ShadowStackTransformer;
+import org.teavm.runtime.CallSite;
 import org.teavm.runtime.RuntimeArray;
 import org.teavm.runtime.RuntimeClass;
 import org.teavm.runtime.RuntimeObject;
@@ -160,8 +164,19 @@ public class ClassGenerator {
         }
     };
 
-    public void generateClass(CodeWriter writer, CodeWriter headerWriter, ClassHolder cls) {
+    public void generateClass(CodeWriter writer, CodeWriter headerWriter, ClassHolder cls,
+            ShadowStackTransformer shadowStackTransformer) {
         init(writer, headerWriter, fileName(cls.getName()));
+
+        String callSitesName = "callsites_" + context.getNames().forClass(cls.getName());
+        String callSiteClassName = context.getNames().forClass(CallSite.class.getName());
+
+        if (context.isIncremental()) {
+            includes.includeClass(CallSite.class.getName());
+            codeWriter.println("static " + callSiteClassName + " " + callSitesName + "[];");
+            codeWriter.println("#define TEAVM_ALLOC_STACK(size) TEAVM_ALLOC_STACK_DEF(size, " + callSitesName + ")");
+        }
+
         codeGenerator = new CodeGenerator(context, codeWriter, includes);
 
         String sysInitializerName = context.getNames().forClassSystemInitializer(cls.getName());
@@ -178,6 +193,16 @@ public class ClassGenerator {
         generateVirtualTable(ValueType.object(cls.getName()));
         generateStaticGCRoots(cls.getName());
         generateLayoutArray(cls.getName());
+
+        if (context.isIncremental()) {
+            generateCallSites(shadowStackTransformer.getCallSites(), callSitesName);
+        }
+    }
+
+    private void generateCallSites(List<? extends CallSiteDescriptor> callSites, String callSitesName) {
+        CallSiteGenerator generator = new CallSiteGenerator(context, codeWriter, includes, callSitesName);
+        generator.setStatic(true);
+        generator.generate(callSites);
     }
 
     public void generateType(CodeWriter writer, CodeWriter headerWriter, ValueType type) {
@@ -454,6 +479,8 @@ public class ClassGenerator {
         int flags = 0;
         String layout = "NULL";
         String initFunction = "NULL";
+        String superinterfaceCount = "0";
+        String superinterfaces = "NULL";
 
         if (type instanceof ValueType.Object) {
             String className = ((ValueType.Object) type).getClassName();
@@ -473,7 +500,7 @@ public class ClassGenerator {
                 flags |= RuntimeClass.ENUM;
             }
             List<TagRegistry.Range> ranges = tagRegistry.getRanges(className);
-            tag = ranges != null && !ranges.isEmpty() ? ranges.get(0).lower : 0;
+            tag = !context.isIncremental() && ranges != null && !ranges.isEmpty() ? ranges.get(0).lower : 0;
 
             if (cls != null && cls.getParent() != null && types.contains(ValueType.object(cls.getParent()))) {
                 includes.includeClass(cls.getParent());
@@ -487,10 +514,31 @@ public class ClassGenerator {
             if (cls != null && needsInitializer(cls)) {
                 initFunction = context.getNames().forClassInitializer(className);
             }
+
+            Set<String> interfaces = cls != null
+                    ? cls.getInterfaces().stream()
+                            .filter(c -> types.contains(ValueType.object(c)))
+                            .collect(Collectors.toSet())
+                    : Collections.emptySet();
+            if (!interfaces.isEmpty()) {
+                superinterfaceCount = Integer.toString(cls.getInterfaces().size());
+                StringBuilder sb = new StringBuilder("(TeaVM_Class*[]) { ");
+                boolean first = true;
+                for (String itf : interfaces) {
+                    if (!first) {
+                        sb.append(", ");
+                    }
+                    first = false;
+                    includes.includeClass(itf);
+                    sb.append("(TeaVM_Class*) &").append(context.getNames().forClassInstance(ValueType.object(itf)));
+                }
+                superinterfaces = sb.append(" }").toString();
+            }
+
         } else if (type instanceof ValueType.Array) {
             includes.includeClass("java.lang.Object");
             parent = "(TeaVM_Class*) &" + context.getNames().forClassInstance(ValueType.object("java.lang.Object"));
-            tag = tagRegistry.getRanges("java.lang.Object").get(0).lower;
+            tag = !context.isIncremental() ? tagRegistry.getRanges("java.lang.Object").get(0).lower : 0;
             ValueType itemType = ((ValueType.Array) type).getItemType();
             sizeExpr = "sizeof(" + CodeWriter.strictTypeAsString(itemType) + ")";
             includes.includeType(itemType);
@@ -532,6 +580,8 @@ public class ClassGenerator {
         codeWriter.println(".itemType = " + itemTypeExpr + ",");
         codeWriter.println(".isSupertypeOf = &" + superTypeFunction + ",");
         codeWriter.println(".superclass = " + parent + ",");
+        codeWriter.println(".superinterfaceCount = " + superinterfaceCount + ",");
+        codeWriter.println(".superinterfaces = " + superinterfaces + ",");
         codeWriter.println(".enumValues = NULL,");
         codeWriter.println(".layout = " + layout + ",");
         codeWriter.println(".enumValues = " + enumConstants + ",");
@@ -766,6 +816,14 @@ public class ClassGenerator {
     }
 
     private void generateIsSuperclassFunction(String className) {
+        if (context.isIncremental()) {
+            generateIncrementalSuperclassFunction(className);
+        } else {
+            generateFastIsSuperclassFunction(className);
+        }
+    }
+
+    private void generateFastIsSuperclassFunction(String className) {
         List<TagRegistry.Range> ranges = tagRegistry.getRanges(className);
         if (ranges.isEmpty()) {
             codeWriter.println("return INT32_C(0);");
@@ -787,6 +845,25 @@ public class ClassGenerator {
         }
 
         codeWriter.println("return INT32_C(1);");
+    }
+
+    private void generateIncrementalSuperclassFunction(String className) {
+        String functionName = context.getNames().forSupertypeFunction(ValueType.object(className));
+        ClassReader cls = context.getClassSource().get(className);
+        if (cls != null && types.contains(ValueType.object(className))) {
+            includes.includeClass(className);
+            String name = context.getNames().forClassInstance(ValueType.object(className));
+            codeWriter.println("if (cls == (TeaVM_Class*) &" + name + ") return INT32_C(1);");
+
+            codeWriter.println("if (cls->superclass != NULL && " + functionName + "(cls->superclass)) "
+                    + "return INT32_C(1);");
+            codeWriter.println("for (int32_t i = 0; i < cls->superinterfaceCount; ++i) {").indent();
+            codeWriter.println("if (" + functionName + "(cls->superinterfaces[i])) "
+                    + "return INT32_C(1);");
+            codeWriter.outdent().println("}");
+        }
+
+        codeWriter.println("return INT32_C(0);");
     }
 
     private void generateIsSuperArrayFunction(ValueType itemType) {
