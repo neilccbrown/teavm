@@ -46,25 +46,25 @@ public class TFileOutputStream extends OutputStream {
         VirtualFile virtualFile = file.findVirtualFile();
         if (virtualFile == null) {
             VirtualFile parentVirtualFile = file.findParentFile();
-            if (parentVirtualFile != null && parentVirtualFile.isDirectory()) {
-                virtualFile = parentVirtualFile.createFile(file.getName());
+            if (parentVirtualFile != null) {
+                try {
+                    virtualFile = parentVirtualFile.createFile(file.getName());
+                } catch (IOException e) {
+                    throw new FileNotFoundException();
+                }
             }
         }
-        if (virtualFile == null || virtualFile.isDirectory()) {
+        if (virtualFile == null) {
             throw new FileNotFoundException();
         }
 
-        if (!virtualFile.canWrite()) {
-            throw new FileNotFoundException("File is read-only");
-        }
-
-        accessor = virtualFile.createAccessor();
+        accessor = virtualFile.createAccessor(false, true, append);
         if (accessor == null) {
             throw new FileNotFoundException();
         }
 
         if (append) {
-            pos = accessor.size();
+            pos = -1;
         }
     }
 
@@ -74,23 +74,28 @@ public class TFileOutputStream extends OutputStream {
         if (off < 0 || len < 0 || off > b.length - len) {
             throw new IndexOutOfBoundsException();
         }
-        ensureOpened();
+        ensurePos();
         accessor.write(pos, b, off, len);
         pos += len;
     }
 
     @Override
     public void flush() throws IOException {
+        ensureOpened();
+        accessor.flush();
     }
 
     @Override
     public void close() throws IOException {
+        if (accessor != null) {
+            accessor.close();
+        }
         accessor = null;
     }
 
     @Override
     public void write(int b) throws IOException {
-        ensureOpened();
+        ensurePos();
         byte[] buffer = { (byte) b };
         accessor.write(pos, buffer, 0, 1);
         pos++;
@@ -99,6 +104,13 @@ public class TFileOutputStream extends OutputStream {
     private void ensureOpened() throws IOException {
         if (accessor == null) {
             throw new IOException("This stream is already closed");
+        }
+    }
+
+    private void ensurePos() throws IOException {
+        ensureOpened();
+        if (pos < 0) {
+            pos = accessor.size();
         }
     }
 }

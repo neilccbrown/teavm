@@ -1,5 +1,5 @@
 /*
- *  Copyright 2017 Alexey Andreev.
+ *  Copyright 2019 Alexey Andreev.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -13,7 +13,9 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package org.teavm.classlib.fs;
+package org.teavm.classlib.fs.memory;
+
+import org.teavm.classlib.fs.VirtualFile;
 
 public abstract class AbstractInMemoryVirtualFile implements VirtualFile {
     String name;
@@ -31,10 +33,19 @@ public abstract class AbstractInMemoryVirtualFile implements VirtualFile {
     }
 
     @Override
-    public void delete() {
+    public boolean delete() {
+        if (parent == null || (isDirectory() && listFiles().length > 0)) {
+            return false;
+        }
+
+        if (parent != null && !parent.canWrite()) {
+            return false;
+        }
+
         parent.children.remove(name);
         parent.modify();
         parent = null;
+        return true;
     }
 
     @Override

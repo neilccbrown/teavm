@@ -15,6 +15,8 @@
  */
 package org.teavm.classlib.fs;
 
+import java.io.IOException;
+
 public interface VirtualFile {
     String getName();
 
@@ -26,15 +28,15 @@ public interface VirtualFile {
 
     VirtualFile getChildFile(String fileName);
 
-    VirtualFileAccessor createAccessor();
+    VirtualFileAccessor createAccessor(boolean readable, boolean writable, boolean append);
 
-    VirtualFile createFile(String fileName);
+    VirtualFile createFile(String fileName) throws IOException;
 
     VirtualFile createDirectory(String fileName);
 
-    void delete();
+    boolean delete();
 
-    void adopt(VirtualFile targetDir, String fileName);
+    boolean adopt(VirtualFile file, String fileName);
 
     boolean canRead();
 

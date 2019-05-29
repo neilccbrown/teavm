@@ -607,8 +607,14 @@ public class TeaVMTestRunner extends Runner implements Filterable {
                 throw new RuntimeException(e);
             }
         };
-        return compileTest(method, configuration, CTarget::new, TestNativeEntryPoint.class.getName(), path, ".c",
+        return compileTest(method, configuration, this::createCTarget, TestNativeEntryPoint.class.getName(), path, ".c",
                 postBuild, true);
+    }
+
+    private CTarget createCTarget() {
+        CTarget cTarget = new CTarget();
+        cTarget.setLineNumbersGenerated(true);
+        return cTarget;
     }
 
     private CompileResult compileToWasm(Method method, TeaVMTestConfiguration<WasmTarget> configuration,

@@ -56,10 +56,11 @@ public class TRandomAccessFile implements DataInput, DataOutput, Closeable {
             throw new FileNotFoundException();
         }
 
-        accessor = virtualFile.createAccessor();
+        accessor = virtualFile.createAccessor(true, !readOnly, false);
         if (accessor == null) {
             throw new FileNotFoundException();
         }
+        buff = new byte[16];
     }
 
     @Override

@@ -43,6 +43,10 @@ inline static int64_t teavm_date_timestamp(struct tm *t) {
     return (int64_t) (1000 * difftime(result, teavm_epochStart));
 }
 
+int64_t teavm_date_timeToTimestamp(time_t t) {
+    return (int64_t) (1000 * difftime(t, teavm_epochStart));
+}
+
 inline static struct tm* teavm_date_decompose(int64_t timestamp, struct tm *t) {
     *t = teavm_epochStartTm;
     t->tm_sec += timestamp / 1000;

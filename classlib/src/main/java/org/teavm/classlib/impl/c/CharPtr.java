@@ -1,5 +1,5 @@
 /*
- *  Copyright 2017 Alexey Andreev.
+ *  Copyright 2019 Alexey Andreev.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -13,23 +13,10 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package org.teavm.classlib.fs;
+package org.teavm.classlib.impl.c;
 
-public class InMemoryVirtualFileSystem implements VirtualFileSystem {
-    private InMemoryVirtualDirectory root = new InMemoryVirtualDirectory("");
-    private String userDir = "/";
+import org.teavm.interop.Structure;
 
-    @Override
-    public VirtualFile getRootFile() {
-        return root;
-    }
-
-    @Override
-    public String getUserDir() {
-        return userDir;
-    }
-
-    public void setUserDir(String userDir) {
-        this.userDir = userDir;
-    }
+public class CharPtr extends Structure {
+    public char value;
 }

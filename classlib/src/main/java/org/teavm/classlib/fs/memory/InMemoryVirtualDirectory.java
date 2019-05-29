@@ -1,5 +1,5 @@
 /*
- *  Copyright 2017 Alexey Andreev.
+ *  Copyright 2019 Alexey Andreev.
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -13,10 +13,13 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package org.teavm.classlib.fs;
+package org.teavm.classlib.fs.memory;
 
+import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.teavm.classlib.fs.VirtualFile;
+import org.teavm.classlib.fs.VirtualFileAccessor;
 
 public class InMemoryVirtualDirectory extends AbstractInMemoryVirtualFile {
     final Map<String, VirtualFile> children = new LinkedHashMap<>();
@@ -46,12 +49,15 @@ public class InMemoryVirtualDirectory extends AbstractInMemoryVirtualFile {
     }
 
     @Override
-    public VirtualFileAccessor createAccessor() {
-        throw new UnsupportedOperationException();
+    public VirtualFileAccessor createAccessor(boolean readable, boolean writable, boolean append) {
+        return null;
     }
 
     @Override
-    public VirtualFile createFile(String fileName) {
+    public VirtualFile createFile(String fileName) throws IOException {
+        if (!canWrite()) {
+            throw new IOException("Directory is read-only");
+        }
         InMemoryVirtualFile file = new InMemoryVirtualFile(fileName);
         adoptFile(file);
         return file;
@@ -59,23 +65,33 @@ public class InMemoryVirtualDirectory extends AbstractInMemoryVirtualFile {
 
     @Override
     public VirtualFile createDirectory(String fileName) {
+        if (!canWrite()) {
+            return null;
+        }
         InMemoryVirtualDirectory file = new InMemoryVirtualDirectory(fileName);
         adoptFile(file);
         return file;
     }
 
     @Override
-    public void adopt(VirtualFile file, String fileName) {
+    public boolean adopt(VirtualFile file, String fileName) {
+        if (!canWrite()) {
+            return false;
+        }
         AbstractInMemoryVirtualFile typedFile = (AbstractInMemoryVirtualFile) file;
+        if (!typedFile.parent.canWrite()) {
+            return false;
+        }
         typedFile.parent.children.remove(typedFile.name);
         typedFile.parent = this;
         children.put(fileName, typedFile);
         typedFile.name = fileName;
+        return true;
     }
 
     @Override
     public int length() {
-        throw new UnsupportedOperationException();
+        return 0;
     }
 
     private void adoptFile(AbstractInMemoryVirtualFile file) {
