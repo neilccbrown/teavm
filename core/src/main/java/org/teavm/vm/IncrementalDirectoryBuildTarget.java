@@ -53,6 +53,12 @@ public class IncrementalDirectoryBuildTarget implements BuildTarget {
         return new OutputStreamImpl(new File(directory, fileName));
     }
 
+    @Override
+    public OutputStream appendResource(String fileName) {
+        writtenFiles.add(fileName);
+        return new OutputStreamImpl(new File(directory, fileName));
+    }
+
     static class OutputStreamImpl extends OutputStream {
         private File file;
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();

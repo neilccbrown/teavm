@@ -46,6 +46,11 @@ public class MemoryBuildTarget implements BuildTarget {
         return stream;
     }
 
+    @Override
+    public OutputStream appendResource(String fileName) {
+        return appendToResource(fileName);
+    }
+    
     public OutputStream appendToResource(String fileName) {
         return data.computeIfAbsent(fileName, k -> new ByteArrayOutputStream());
     }
