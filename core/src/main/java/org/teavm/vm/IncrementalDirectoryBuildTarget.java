@@ -64,7 +64,7 @@ public class IncrementalDirectoryBuildTarget implements BuildTarget {
     @Override
     public OutputStream appendResource(String fileName) {
         writtenFiles.add(fileName);
-        return new OutputStreamImpl(new File(directory, fileName));
+        return new OutputStreamImpl(new File(directory, fileName), fileName);
     }
 
     class OutputStreamImpl extends OutputStream {

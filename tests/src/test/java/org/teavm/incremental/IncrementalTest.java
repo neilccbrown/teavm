@@ -339,5 +339,11 @@ public class IncrementalTest {
             fs.put(fileName, out);
             return out;
         }
+
+
+        @Override
+        public OutputStream appendResource(String fileName) {
+            return fs.computeIfAbsent(fileName, k -> new ByteArrayOutputStream());
+        }
     }
 }

@@ -18,11 +18,8 @@ package org.teavm.dependency;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import java.io.ByteArrayOutputStream;
-
 import java.io.IOException;
 import java.io.OutputStream;
-
-import org.apache.commons.io.output.ByteArrayOutputStream;
 import org.junit.Test;
 import org.teavm.backend.javascript.JavaScriptTarget;
 import org.teavm.model.MethodReference;
