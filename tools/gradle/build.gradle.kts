@@ -118,4 +118,9 @@ publishing {
         }
     }
 }
-
+// Turn off signing for Greenfoot variant:
+signing {
+    setRequired {
+        false
+    }
+}
