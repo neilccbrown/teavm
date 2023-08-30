@@ -15,6 +15,7 @@
  */
 package org.teavm.classlib.java.util;
 
+import java.util.Objects;
 import org.teavm.classlib.java.util.function.TUnaryOperator;
 
 public interface TList<E> extends TCollection<E> {
@@ -47,5 +48,111 @@ public interface TList<E> extends TCollection<E> {
 
     default void sort(TComparator<? super E> c) {
         TCollections.sort(this, c);
+    }
+
+    static <E> TList<E> of() {
+        return TCollections.emptyList();
+    }
+
+    static <E> TList<E> of(E e) {
+        return TCollections.singletonList(e);
+    }
+
+    static <E> TList<E> of(E e1, E e2) {
+        Objects.requireNonNull(e1);
+        Objects.requireNonNull(e2);
+        return new TTemplateCollections.TwoElementsList<>(e1, e2);
+    }
+
+    static <E> TList<E> of(E e1, E e2, E e3) {
+        Objects.requireNonNull(e1);
+        Objects.requireNonNull(e2);
+        Objects.requireNonNull(e3);
+        return new TTemplateCollections.ImmutableArrayList<>(e1, e2, e3);
+    }
+
+    static <E> TList<E> of(E e1, E e2, E e3, E e4) {
+        Objects.requireNonNull(e1);
+        Objects.requireNonNull(e2);
+        Objects.requireNonNull(e3);
+        Objects.requireNonNull(e4);
+        return new TTemplateCollections.ImmutableArrayList<>(e1, e2, e3, e4);
+    }
+
+    static <E> TList<E> of(E e1, E e2, E e3, E e4, E e5) {
+        Objects.requireNonNull(e1);
+        Objects.requireNonNull(e2);
+        Objects.requireNonNull(e3);
+        Objects.requireNonNull(e4);
+        Objects.requireNonNull(e5);
+        return new TTemplateCollections.ImmutableArrayList<>(e1, e2, e3, e4, e5);
+    }
+
+    static <E> TList<E> of(E e1, E e2, E e3, E e4, E e5, E e6) {
+        Objects.requireNonNull(e1);
+        Objects.requireNonNull(e2);
+        Objects.requireNonNull(e3);
+        Objects.requireNonNull(e4);
+        Objects.requireNonNull(e5);
+        Objects.requireNonNull(e6);
+        return new TTemplateCollections.ImmutableArrayList<>(e1, e2, e3, e4, e5, e6);
+    }
+
+    static <E> TList<E> of(E e1, E e2, E e3, E e4, E e5, E e6, E e7) {
+        Objects.requireNonNull(e1);
+        Objects.requireNonNull(e2);
+        Objects.requireNonNull(e3);
+        Objects.requireNonNull(e4);
+        Objects.requireNonNull(e5);
+        Objects.requireNonNull(e6);
+        Objects.requireNonNull(e7);
+        return new TTemplateCollections.ImmutableArrayList<>(e1, e2, e3, e4, e5, e6, e7);
+    }
+
+    static <E> TList<E> of(E e1, E e2, E e3, E e4, E e5, E e6, E e7, E e8) {
+        Objects.requireNonNull(e1);
+        Objects.requireNonNull(e2);
+        Objects.requireNonNull(e3);
+        Objects.requireNonNull(e4);
+        Objects.requireNonNull(e5);
+        Objects.requireNonNull(e6);
+        Objects.requireNonNull(e7);
+        Objects.requireNonNull(e8);
+        return new TTemplateCollections.ImmutableArrayList<>(e1, e2, e3, e4, e5, e6, e7, e8);
+    }
+
+    static <E> TList<E> of(E e1, E e2, E e3, E e4, E e5, E e6, E e7, E e8, E e9) {
+        Objects.requireNonNull(e1);
+        Objects.requireNonNull(e2);
+        Objects.requireNonNull(e3);
+        Objects.requireNonNull(e4);
+        Objects.requireNonNull(e5);
+        Objects.requireNonNull(e6);
+        Objects.requireNonNull(e7);
+        Objects.requireNonNull(e8);
+        Objects.requireNonNull(e9);
+        return new TTemplateCollections.ImmutableArrayList<>(e1, e2, e3, e4, e5, e6, e7, e8, e9);
+    }
+
+    static <E> TList<E> of(E e1, E e2, E e3, E e4, E e5, E e6, E e7, E e8, E e9, E e10) {
+        Objects.requireNonNull(e1);
+        Objects.requireNonNull(e2);
+        Objects.requireNonNull(e3);
+        Objects.requireNonNull(e4);
+        Objects.requireNonNull(e5);
+        Objects.requireNonNull(e6);
+        Objects.requireNonNull(e7);
+        Objects.requireNonNull(e8);
+        Objects.requireNonNull(e9);
+        Objects.requireNonNull(e10);
+        return new TTemplateCollections.ImmutableArrayList<>(e1, e2, e3, e4, e5, e6, e7, e8, e9, e10);
+    }
+
+    @SafeVarargs
+    static <E> TList<E> of(E... elements) {
+        for (E element : elements) {
+            Objects.requireNonNull(element);
+        }
+        return new TTemplateCollections.ImmutableArrayList<>(elements.clone());
     }
 }

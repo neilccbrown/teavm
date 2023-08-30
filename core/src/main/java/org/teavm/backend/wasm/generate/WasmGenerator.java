@@ -15,10 +15,13 @@
  */
 package org.teavm.backend.wasm.generate;
 
+import java.util.function.Predicate;
 import org.teavm.ast.RegularMethodNode;
 import org.teavm.ast.VariableNode;
 import org.teavm.ast.decompilation.Decompiler;
+import org.teavm.backend.lowlevel.generate.NameProvider;
 import org.teavm.backend.wasm.binary.BinaryWriter;
+import org.teavm.backend.wasm.debug.info.VariableType;
 import org.teavm.backend.wasm.model.WasmFunction;
 import org.teavm.backend.wasm.model.WasmLocal;
 import org.teavm.backend.wasm.model.WasmType;
@@ -39,21 +42,25 @@ public class WasmGenerator {
     private WasmClassGenerator classGenerator;
     private BinaryWriter binaryWriter;
     private NameProvider names;
+    private Predicate<MethodReference> asyncMethods;
 
     public WasmGenerator(Decompiler decompiler, ClassHolderSource classSource,
-            WasmGenerationContext context, WasmClassGenerator classGenerator, BinaryWriter binaryWriter) {
+            WasmGenerationContext context, WasmClassGenerator classGenerator, BinaryWriter binaryWriter,
+            Predicate<MethodReference> asyncMethods) {
         this.decompiler = decompiler;
         this.classSource = classSource;
         this.context = context;
         this.classGenerator = classGenerator;
         this.binaryWriter = binaryWriter;
         names = classGenerator.names;
+        this.asyncMethods = asyncMethods;
     }
 
     public WasmFunction generateDefinition(MethodReference methodReference) {
         ClassHolder cls = classSource.get(methodReference.getClassName());
         MethodHolder method = cls.getMethod(methodReference.getDescriptor());
         WasmFunction function = new WasmFunction(names.forMethod(method.getReference()));
+        function.setJavaMethod(methodReference);
 
         if (!method.hasModifier(ElementModifier.STATIC)) {
             function.getParameters().add(WasmType.INT32);
@@ -80,11 +87,13 @@ public class WasmGenerator {
             WasmType type = variable.getType() != null
                     ? WasmGeneratorUtil.mapType(variable.getType())
                     : WasmType.INT32;
-            function.add(new WasmLocal(type, variable.getName()));
+            var local = new WasmLocal(type, variable.getName());
+            local.setJavaType(mapType(variable.getType()));
+            function.add(local);
         }
 
         WasmGenerationVisitor visitor = new WasmGenerationVisitor(context, classGenerator, binaryWriter, function,
-                firstVariable);
+                firstVariable, asyncMethods.test(methodReference));
         methodAst.getBody().acceptVisitor(visitor);
         if (visitor.result instanceof WasmBlock) {
             ((WasmBlock) visitor.result).setType(function.getResult());
@@ -97,6 +106,21 @@ public class WasmGenerator {
         }
 
         return function;
+    }
+
+    private VariableType mapType(org.teavm.model.util.VariableType type) {
+        switch (type) {
+            case INT:
+                return VariableType.INT;
+            case LONG:
+                return VariableType.LONG;
+            case FLOAT:
+                return VariableType.FLOAT;
+            case DOUBLE:
+                return VariableType.DOUBLE;
+            default:
+                return VariableType.OBJECT;
+        }
     }
 
     public WasmFunction generateNative(MethodReference methodReference) {

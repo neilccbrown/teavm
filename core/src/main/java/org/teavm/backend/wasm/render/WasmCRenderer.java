@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import org.teavm.backend.wasm.model.WasmFunction;
 import org.teavm.backend.wasm.model.WasmLocal;
 import org.teavm.backend.wasm.model.WasmMemorySegment;
@@ -72,8 +73,6 @@ public class WasmCRenderer {
         line("");
 
         renderFunctionDeclarations(module);
-        line("static int8_t *wasm_heap;");
-        line("static int32_t wasm_heap_size;");
         renderFunctionTable(module);
 
         for (WasmFunction function : module.getFunctions().values()) {
@@ -82,9 +81,11 @@ public class WasmCRenderer {
             }
         }
 
-        line("void main() {");
+        line("void main(int argc, char** argv) {");
         indent();
 
+        line("wasm_args = argc;");
+        line("wasm_argv = argv;");
         renderHeap(module);
         if (module.getStartFunction() != null) {
             line(module.getStartFunction().getName() + "();");
@@ -96,14 +97,26 @@ public class WasmCRenderer {
             }
         }
 
+        for (WasmFunction function : module.getFunctions().values()) {
+            if (Objects.equals(function.getExportName(), "_start")) {
+                line(function.getName() + "();");
+            }
+        }
+
         outdent();
         line("}");
     }
 
     private void renderPrologue() {
+        writeResource("org/teavm/backend/wasm/wasm-runtime.c");
+        line("#define TEAVM_MEMORY_TRACE 1");
+        writeResource("org/teavm/backend/wasm/wasm-heapTrace.c");
+    }
+
+    private void writeResource(String name) {
         ClassLoader classLoader = WasmCRenderer.class.getClassLoader();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                classLoader.getResourceAsStream("org/teavm/backend/wasm/wasm-runtime.c")))) {
+                classLoader.getResourceAsStream(name)))) {
             while (true) {
                 String line = reader.readLine();
                 if (line == null) {
@@ -117,8 +130,8 @@ public class WasmCRenderer {
     }
 
     private void renderHeap(WasmModule module) {
-        line("wasm_heap_size = " + 65536 * module.getMemorySize() + ";");
-        line("wasm_heap = malloc(" + 65536 * module.getMemorySize() + ");");
+        line("wasm_heap_size = " + 65536 * module.getMinMemorySize() + ";");
+        line("wasm_heap = malloc(wasm_heap_size);");
         for (WasmMemorySegment segment : module.getSegments()) {
             line("memcpy(wasm_heap + " + segment.getOffset() + ",");
             indent();
@@ -159,9 +172,7 @@ public class WasmCRenderer {
 
     private void renderFunctionDeclarations(WasmModule module) {
         for (WasmFunction function : module.getFunctions().values()) {
-            if (function.getImportName() == null) {
-                line(functionDeclaration(function) + ";");
-            }
+            line(functionDeclaration(function) + ";");
         }
     }
 
@@ -174,7 +185,8 @@ public class WasmCRenderer {
         renderFunctionModifiers(declaration, function);
         declaration.append(WasmCRenderingVisitor.mapType(function.getResult())).append(' ');
         declaration.append(function.getName()).append('(');
-        for (int i = 0; i < function.getParameters().size(); ++i) {
+        int sz = Math.min(function.getParameters().size(), function.getLocalVariables().size());
+        for (int i = 0; i < sz; ++i) {
             if (i > 0) {
                 declaration.append(", ");
             }
@@ -186,8 +198,7 @@ public class WasmCRenderer {
         line(declaration.toString());
         indent();
 
-        List<WasmLocal> variables = function.getLocalVariables().subList(function.getParameters().size(),
-                function.getLocalVariables().size());
+        List<WasmLocal> variables = function.getLocalVariables().subList(sz, function.getLocalVariables().size());
         for (WasmLocal variable : variables) {
             line(WasmCRenderingVisitor.mapType(variable.getType()) + " " + visitor.getVariableName(variable) + ";");
         }
@@ -222,7 +233,14 @@ public class WasmCRenderer {
         StringBuilder sb = new StringBuilder();
         renderFunctionModifiers(sb, function);
         sb.append(WasmCRenderingVisitor.mapType(function.getResult())).append(' ');
-        sb.append(function.getName()).append("(");
+        if (function.getImportName() != null) {
+            sb.append(function.getImportModule() != null && !function.getImportModule().isEmpty()
+                    ? function.getImportModule() + "_" + function.getImportName()
+                    : function.getImportName());
+        } else {
+            sb.append(function.getName());
+        }
+        sb.append("(");
         for (int i = 0; i < function.getParameters().size(); ++i) {
             if (i > 0) {
                 sb.append(", ");

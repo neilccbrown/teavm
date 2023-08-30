@@ -34,6 +34,12 @@ public class GCIntrinsic implements Intrinsic {
             case "regionMaxCount":
             case "availableBytes":
             case "regionSize":
+            case "minAvailableBytes":
+            case "maxAvailableBytes":
+            case "resizeHeap":
+            case "cardTable":
+            case "writeBarrier":
+            case "canShrinkHeap":
                 return true;
             default:
                 return false;
@@ -42,6 +48,27 @@ public class GCIntrinsic implements Intrinsic {
 
     @Override
     public void apply(IntrinsicContext context, InvocationExpr invocation) {
-        context.writer().print("teavm_gc_").print(invocation.getMethod().getName());
+        switch (invocation.getMethod().getName()) {
+            case "resizeHeap":
+                context.writer().print("teavm_gc_resizeHeap(");
+                context.emit(invocation.getArguments().get(0));
+                context.writer().print(")");
+                break;
+
+            case "writeBarrier":
+                context.writer().print("teavm_gc_writeBarrier(");
+                context.emit(invocation.getArguments().get(0));
+                context.writer().print(")");
+                break;
+
+            case "canShrinkHeap":
+                context.writer().print("1");
+                break;
+
+            default:
+                context.includes().includePath("heaptrace.h");
+                context.writer().print("teavm_gc_").print(invocation.getMethod().getName());
+                break;
+        }
     }
 }

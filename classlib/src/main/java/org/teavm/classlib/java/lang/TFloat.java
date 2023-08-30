@@ -17,6 +17,7 @@ package org.teavm.classlib.java.lang;
 
 import org.teavm.interop.Import;
 import org.teavm.interop.NoSideEffects;
+import org.teavm.interop.Unmanaged;
 import org.teavm.jso.JSBody;
 
 public class TFloat extends TNumber implements TComparable<TFloat> {
@@ -97,33 +98,54 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
     @JSBody(params = "v", script = "return isNaN(v);")
     @Import(module = "teavm", name = "isnan")
     @NoSideEffects
+    @Unmanaged
     public static native boolean isNaN(float v);
 
     @JSBody(params = "v", script = "return !isFinite(v);")
     @Import(module = "teavm", name = "isinf")
     @NoSideEffects
+    @Unmanaged
     public static native boolean isInfinite(float v);
 
     @JSBody(params = "v", script = "return isFinite(v);")
     @Import(module = "teavm", name = "isfinite")
     @NoSideEffects
+    @Unmanaged
     public static native boolean isFinite(float v);
 
     @JSBody(script = "return NaN;")
     @Import(module = "teavm", name = "teavm_getNaN")
     @NoSideEffects
+    @Unmanaged
     private static native float getNaN();
 
     public static float parseFloat(TString string) throws TNumberFormatException {
         // TODO: parse infinite and different radix
-        string = string.trim();
+
+        if (string.isEmpty()) {
+            throw new TNumberFormatException();
+        }
+        int start = 0;
+        int end = string.length();
+        while (string.charAt(start) <= ' ') {
+            if (++start == end) {
+                throw new TNumberFormatException();
+            }
+        }
+        while (string.charAt(end - 1) <= ' ') {
+            --end;
+        }
+
         boolean negative = false;
-        int index = 0;
+        int index = start;
         if (string.charAt(index) == '-') {
             ++index;
             negative = true;
         } else if (string.charAt(index) == '+') {
             ++index;
+        }
+        if (index == end) {
+            throw new TNumberFormatException();
         }
         char c = string.charAt(index);
 
@@ -137,17 +159,15 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
                 throw new TNumberFormatException();
             }
 
-            while (string.charAt(index) == '0') {
-                if (++index == string.length()) {
-                    return 0;
-                }
+            while (index < end && string.charAt(index) == '0') {
+                ++index;
             }
-            while (index < string.length()) {
+            while (index < end) {
                 c = string.charAt(index);
                 if (c < '0' || c > '9') {
                     break;
                 }
-                if (mantissa < 1E8) {
+                if (mantissa < (TInteger.MAX_VALUE / 10) - 9) {
                     mantissa = mantissa * 10 + (c - '0');
                 } else {
                     ++exp;
@@ -156,14 +176,14 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
             }
         }
 
-        if (index < string.length() && string.charAt(index) == '.') {
+        if (index < end && string.charAt(index) == '.') {
             ++index;
-            while (index < string.length()) {
+            while (index < end) {
                 c = string.charAt(index);
                 if (c < '0' || c > '9') {
                     break;
                 }
-                if (mantissa < 1E38) {
+                if (mantissa < (TInteger.MAX_VALUE / 10) - 9) {
                     mantissa = mantissa * 10 + (c - '0');
                     --exp;
                 }
@@ -174,13 +194,16 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
                 throw new TNumberFormatException();
             }
         }
-        if (index < string.length()) {
+        if (index < end) {
             c = string.charAt(index);
             if (c != 'e' && c != 'E') {
                 throw new TNumberFormatException();
             }
             ++index;
             boolean negativeExp = false;
+            if (index == end) {
+                throw new TNumberFormatException();
+            }
             if (string.charAt(index) == '-') {
                 ++index;
                 negativeExp = true;
@@ -189,7 +212,7 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
             }
             int numExp = 0;
             hasOneDigit = false;
-            while (index < string.length()) {
+            while (index < end) {
                 c = string.charAt(index);
                 if (c < '0' || c > '9') {
                     break;
@@ -261,11 +284,13 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
     @JSBody(params = "value", script = "return $rt_floatToIntBits(value);")
     @Import(name = "teavm_reinterpretFloatToInt")
     @NoSideEffects
+    @Unmanaged
     public static native int floatToIntBits(float value);
 
     @JSBody(params = "bits", script = "return $rt_intBitsToFloat(bits);")
     @Import(name = "teavm_reinterpretIntToFloat")
     @NoSideEffects
+    @Unmanaged
     public static native float intBitsToFloat(int bits);
 
     public static String toHexString(float f) {

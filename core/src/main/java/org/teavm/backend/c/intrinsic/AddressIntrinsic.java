@@ -15,9 +15,13 @@
  */
 package org.teavm.backend.c.intrinsic;
 
+import org.teavm.ast.Expr;
 import org.teavm.ast.InvocationExpr;
+import org.teavm.ast.VariableExpr;
+import org.teavm.backend.c.generate.CodeGeneratorUtil;
 import org.teavm.backend.c.util.ConstantUtil;
 import org.teavm.interop.Address;
+import org.teavm.model.ClassReader;
 import org.teavm.model.MethodReference;
 import org.teavm.model.ValueType;
 
@@ -60,6 +64,8 @@ public class AddressIntrinsic implements Intrinsic {
             case "sizeOf":
 
             case "ofData":
+
+            case "pin":
                 return true;
             default:
                 return false;
@@ -101,7 +107,7 @@ public class AddressIntrinsic implements Intrinsic {
                 context.writer().print(")");
                 break;
             case "getChar":
-                context.writer().print("((int32_t) *(uchar16_t*) ");
+                context.writer().print("((int32_t) *(char16_t*) ");
                 context.emit(invocation.getArguments().get(0));
                 context.writer().print(")");
                 break;
@@ -136,9 +142,9 @@ public class AddressIntrinsic implements Intrinsic {
                 context.writer().print(")");
                 break;
             case "putChar":
-                context.writer().print("(*(uchar16_t*) ");
+                context.writer().print("(*(char16_t*) ");
                 context.emit(invocation.getArguments().get(0));
-                context.writer().print(" = (uchar16_t) ");
+                context.writer().print(" = (char16_t) ");
                 context.emit(invocation.getArguments().get(1));
                 context.writer().print(")");
                 break;
@@ -172,9 +178,18 @@ public class AddressIntrinsic implements Intrinsic {
                     String className = ConstantUtil.getClassLiteral(context, invocation,
                             invocation.getArguments().get(1));
                     context.emit(invocation.getArguments().get(2));
-                    context.writer().print(" * sizeof(")
-                            .print(className != null ? context.names().forClass(className) : "**")
-                            .print(")");
+
+                    context.writer().print(" * sizeof(");
+
+                    if (className != null) {
+                        ClassReader cls = context.classes().get(className);
+                        CodeGeneratorUtil.printClassReference(context.writer(), context.includes(),
+                                context.names(), cls, className);
+                    } else {
+                        context.writer().print("**");
+                    }
+
+                    context.writer().print(")");
                     context.writer().print(")");
                 }
                 break;
@@ -203,6 +218,16 @@ public class AddressIntrinsic implements Intrinsic {
                         + sizeOf(type.getItemType()) + "))");
                 break;
             }
+
+            case "pin": {
+                context.writer().print("/* PIN ");
+                Expr arg = invocation.getArguments().get(0);
+                if (arg instanceof VariableExpr) {
+                    context.writer().print(((VariableExpr) arg).getIndex() + " ");
+                }
+                context.writer().print("*/");
+                break;
+            }
         }
     }
 
@@ -225,6 +250,7 @@ public class AddressIntrinsic implements Intrinsic {
             case BYTE:
                 return 1;
             case SHORT:
+            case CHARACTER:
                 return 2;
             case INTEGER:
             case FLOAT:

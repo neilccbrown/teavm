@@ -72,8 +72,10 @@ import org.junit.runner.RunWith;
 import org.teavm.classlib.support.MapTest2Support;
 import org.teavm.classlib.support.UnmodifiableCollectionTestSupport;
 import org.teavm.junit.TeaVMTestRunner;
+import org.teavm.junit.WholeClassCompilation;
 
 @RunWith(TeaVMTestRunner.class)
+@WholeClassCompilation
 public class HashtableTest {
 
     private Hashtable<String, String> ht10;
@@ -786,7 +788,7 @@ public class HashtableTest {
             ht10.put("Key" + i, "Val" + i);
         }
 
-        String newVal = ht10.computeIfAbsent("absent key", (k) -> "added");
+        String newVal = ht10.computeIfAbsent("absent key", k -> "added");
         assertEquals("added", newVal);
         assertEquals(11, ht10.size());
 
@@ -803,7 +805,7 @@ public class HashtableTest {
             ht10.put("Key" + i, "Val" + i);
         }
 
-        String newVal = ht10.computeIfAbsent("Key5", (v) -> "changed");
+        String newVal = ht10.computeIfAbsent("Key5", v -> "changed");
         assertEquals("Val5", newVal);
         assertEquals(10, ht10.size());
 
@@ -819,7 +821,7 @@ public class HashtableTest {
             ht10.put("Key" + i, "Val" + i);
         }
 
-        String newVal = ht10.computeIfAbsent("absent key", (v) -> null);
+        String newVal = ht10.computeIfAbsent("absent key", v -> null);
         assertEquals(null, newVal);
         assertEquals(10, ht10.size());
 

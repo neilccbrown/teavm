@@ -164,6 +164,7 @@ public class IncrementalTest {
     private String runScript(String script, String fileName) {
         Scriptable scope = new NativeObject();
         scope.setParentScope(rhinoRootScope);
+        scope.setPrototype(rhinoRootScope);
         rhinoContext.evaluateString(scope, script, fileName, 1, null);
         Function main = (Function) scope.get("main", scope);
         ScriptRuntime.doTopCall(main, rhinoContext, scope, scope,
@@ -206,7 +207,8 @@ public class IncrementalTest {
             vm.setOptimizationLevel(TeaVMOptimizationLevel.SIMPLE);
             vm.setProgramCache(programCache);
             target.setAstCache(astCache);
-            target.setMinifying(false);
+            target.setObfuscated(false);
+            target.setStrict(true);
             vm.add(new EntryPointTransformer(entryPoint));
             vm.entryPoint(EntryPoint.class.getName());
             vm.installPlugins();

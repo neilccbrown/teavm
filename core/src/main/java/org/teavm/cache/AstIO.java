@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import org.teavm.ast.ArrayFromDataExpr;
 import org.teavm.ast.ArrayType;
 import org.teavm.ast.AssignmentStatement;
 import org.teavm.ast.AsyncMethodNode;
@@ -29,6 +30,7 @@ import org.teavm.ast.AsyncMethodPart;
 import org.teavm.ast.BinaryExpr;
 import org.teavm.ast.BinaryOperation;
 import org.teavm.ast.BlockStatement;
+import org.teavm.ast.BoundCheckExpr;
 import org.teavm.ast.BreakStatement;
 import org.teavm.ast.CastExpr;
 import org.teavm.ast.ConditionalExpr;
@@ -70,6 +72,7 @@ import org.teavm.ast.VariableNode;
 import org.teavm.ast.WhileStatement;
 import org.teavm.model.ElementModifier;
 import org.teavm.model.FieldReference;
+import org.teavm.model.InliningInfo;
 import org.teavm.model.MethodDescriptor;
 import org.teavm.model.MethodReference;
 import org.teavm.model.ReferenceCache;
@@ -88,6 +91,7 @@ public class AstIO {
     private ReferenceCache referenceCache;
     private TextLocation lastWrittenLocation;
     private TextLocation lastReadLocation;
+    private InliningInfo lastReadInlining;
 
     public AstIO(ReferenceCache referenceCache, SymbolTable symbolTable, SymbolTable fileTable,
             SymbolTable variableTable) {
@@ -98,7 +102,7 @@ public class AstIO {
     }
 
     public void write(VarDataOutput output, ControlFlowEntry[] cfg) throws IOException {
-        lastWrittenLocation = null;
+        lastWrittenLocation = TextLocation.EMPTY;
         output.writeUnsigned(cfg.length);
         for (ControlFlowEntry entry : cfg) {
             writeLocation(output, entry.from);
@@ -129,7 +133,7 @@ public class AstIO {
     }
 
     public ControlFlowEntry[] readControlFlow(VarDataInput input) throws IOException {
-        lastReadLocation = null;
+        lastReadLocation = TextLocation.EMPTY;
         int size = input.readUnsigned();
         ControlFlowEntry[] result = new ControlFlowEntry[size];
         for (int i = 0; i < size; ++i) {
@@ -151,7 +155,7 @@ public class AstIO {
         for (int i = 0; i < varCount; ++i) {
             node.getVariables().add(readVariable(input));
         }
-        lastReadLocation = null;
+        lastReadLocation = TextLocation.EMPTY;
         node.setBody(readStatement(input));
         return node;
     }
@@ -210,23 +214,24 @@ public class AstIO {
     }
 
     private void writeLocation(VarDataOutput output, TextLocation location) throws IOException {
-        if (location == null || location.getFileName() == null) {
+        if (location == null) {
+            location = TextLocation.EMPTY;
+        }
+        if (location.isEmpty()) {
             output.writeUnsigned(0);
-            lastWrittenLocation = null;
-        } else if (lastWrittenLocation != null && lastWrittenLocation.getFileName().equals(location.getFileName())) {
+        } else if (!lastWrittenLocation.isEmpty() && lastWrittenLocation.getFileName().equals(location.getFileName())) {
             output.writeUnsigned(1);
             output.writeSigned(location.getLine() - lastWrittenLocation.getLine());
-            lastWrittenLocation = location;
         } else {
             output.writeUnsigned(fileTable.lookup(location.getFileName()) + 2);
             output.writeUnsigned(location.getLine());
-            lastWrittenLocation = location;
         }
+        lastWrittenLocation = location;
     }
 
     private class NodeWriter implements ExprVisitor, StatementVisitor {
         private final VarDataOutput output;
-        private TextLocation lastLocation;
+        private TextLocation lastLocation = TextLocation.EMPTY;
 
         NodeWriter(VarDataOutput output) {
             super();
@@ -239,21 +244,67 @@ public class AstIO {
         }
 
         private void writeLocation(TextLocation location) throws IOException {
+            if (location == null) {
+                location = TextLocation.EMPTY;
+            }
             if (Objects.equals(location, lastLocation)) {
                 return;
             }
-            if (location == null || location.getFileName() == null) {
+
+            String fileName = lastLocation.getFileName();
+            int lineNumber = lastLocation.getLine();
+
+            if (location.getInlining() != lastLocation.getInlining()) {
+                InliningInfo lastCommonInlining = null;
+                InliningInfo[] prevPath = lastLocation.getInliningPath();
+                InliningInfo[] newPath = location.getInliningPath();
+                int pathIndex = 0;
+                while (pathIndex < prevPath.length && pathIndex < newPath.length
+                        && prevPath[pathIndex].equals(newPath[pathIndex])) {
+                    lastCommonInlining = prevPath[pathIndex++];
+                }
+
+                InliningInfo prevInlining = location.getInlining();
+                while (prevInlining != lastCommonInlining) {
+                    output.writeUnsigned(123);
+                    fileName = prevInlining.getFileName();
+                    lineNumber = prevInlining.getLine();
+                    prevInlining = prevInlining.getParent();
+                }
+
+                while (pathIndex < newPath.length) {
+                    InliningInfo inlining = newPath[pathIndex++];
+                    writeSimpleLocation(fileName, lineNumber, inlining.getFileName(), inlining.getLine());
+                    fileName = null;
+                    lineNumber = -1;
+
+                    output.writeUnsigned(124);
+                    MethodReference method = inlining.getMethod();
+                    output.writeUnsigned(symbolTable.lookup(method.getClassName()));
+                    output.writeUnsigned(symbolTable.lookup(method.getDescriptor().toString()));
+                }
+            }
+
+            writeSimpleLocation(fileName, lineNumber, location.getFileName(), location.getLine());
+
+            lastLocation = location;
+        }
+
+        private void writeSimpleLocation(String fileName, int lineNumber, String newFileName, int newLineNumber)
+                throws IOException {
+            if (Objects.equals(fileName, newFileName) && lineNumber == newLineNumber) {
+                return;
+            }
+
+            if (newFileName == null) {
                 output.writeUnsigned(127);
-                lastLocation = null;
-            } else if (lastLocation != null && lastLocation.getFileName().equals(location.getFileName())) {
+            } else if (fileName != null && fileName.equals(newFileName)) {
                 output.writeUnsigned(126);
-                output.writeSigned(location.getLine() - lastLocation.getLine());
-                lastLocation = location;
+                output.writeSigned(newLineNumber - lineNumber);
             } else {
                 output.writeUnsigned(125);
-                output.writeUnsigned(fileTable.lookup(location.getFileName()));
-                output.writeUnsigned(location.getLine());
-                lastLocation = location;
+                output.writeUnsigned(fileTable.lookup(newFileName));
+                output.writeUnsigned(newLineNumber);
             }
         }
 
@@ -633,6 +684,20 @@ public class AstIO {
         }
 
         @Override
+        public void visit(ArrayFromDataExpr expr) {
+            try {
+                output.writeUnsigned(28);
+                output.writeUnsigned(symbolTable.lookup(expr.getType().toString()));
+                output.writeUnsigned(expr.getData().size());
+                for (Expr element : expr.getData()) {
+                    writeExpr(element);
+                }
+            } catch (IOException e) {
+                throw new IOExceptionWrapper(e);
+            }
+        }
+
+        @Override
         public void visit(InstanceOfExpr expr) {
             try {
                 output.writeUnsigned(22);
@@ -665,6 +730,19 @@ public class AstIO {
                 throw new IOExceptionWrapper(e);
             }
         }
+
+        @Override
+        public void visit(BoundCheckExpr expr) {
+            try {
+                output.writeUnsigned(expr.getArray() == null ? 27 : !expr.isLower() ? 26 : 25);
+                writeExpr(expr.getIndex());
+                if (expr.getArray() != null) {
+                    writeExpr(expr.getArray());
+                }
+            } catch (IOException e) {
+                throw new IOExceptionWrapper(e);
+            }
+        }
     }
 
     private TextLocation readLocation(VarDataInput input) throws IOException {
@@ -688,10 +766,24 @@ public class AstIO {
                 break;
             case 126:
                 lastReadLocation = new TextLocation(lastReadLocation.getFileName(),
-                        lastReadLocation.getLine() + input.readSigned());
+                        lastReadLocation.getLine() + input.readSigned(), lastReadInlining);
                 break;
             case 125:
-                lastReadLocation = new TextLocation(fileTable.at(input.readUnsigned()), input.readUnsigned());
+                lastReadLocation = new TextLocation(fileTable.at(input.readUnsigned()), input.readUnsigned(),
+                        lastReadInlining);
+                break;
+            case 124: {
+                String className = symbolTable.at(input.readUnsigned());
+                MethodDescriptor methodDescriptor = MethodDescriptor.parse(symbolTable.at(input.readUnsigned()));
+                methodDescriptor = referenceCache.getCached(methodDescriptor);
+                lastReadInlining = new InliningInfo(referenceCache.getCached(className, methodDescriptor),
+                        lastReadLocation.getFileName(), lastReadLocation.getLine(), lastReadInlining);
+                lastReadLocation = new TextLocation(null, -1, lastReadInlining);
+                break;
+            }
+            case 123:
+                lastReadLocation = new TextLocation(lastReadInlining.getFileName(), lastReadInlining.getLine());
+                lastReadInlining = lastReadInlining.getParent();
                 break;
             default:
                 return type;
@@ -1022,6 +1114,31 @@ public class AstIO {
                 expr.setSource(OperationType.values()[input.readUnsigned()]);
                 expr.setTarget(OperationType.values()[input.readUnsigned()]);
                 expr.setValue(readExpr(input));
+                return expr;
+            }
+            case 25:
+            case 26: {
+                BoundCheckExpr expr = new BoundCheckExpr();
+                expr.setLocation(lastReadLocation);
+                expr.setIndex(readExpr(input));
+                expr.setArray(readExpr(input));
+                expr.setLower(type == 25);
+                return expr;
+            }
+            case 27: {
+                BoundCheckExpr expr = new BoundCheckExpr();
+                expr.setLocation(lastReadLocation);
+                expr.setIndex(readExpr(input));
+                expr.setLower(true);
+                return expr;
+            }
+            case 28: {
+                ArrayFromDataExpr expr = new ArrayFromDataExpr();
+                expr.setType(ValueType.parse(symbolTable.at(input.readUnsigned())));
+                int count = input.readUnsigned();
+                for (int i = 0; i < count; ++i) {
+                    expr.getData().add(readExpr(input));
+                }
                 return expr;
             }
             default:

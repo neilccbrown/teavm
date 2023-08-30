@@ -52,7 +52,9 @@ public interface BuildStrategy {
 
     void setIncremental(boolean incremental);
 
-    void setMinifying(boolean minifying);
+    void setObfuscated(boolean obfuscated);
+
+    void setStrict(boolean strict);
 
     void setMaxTopLevelNames(int maxTopLevelNames);
 
@@ -72,7 +74,17 @@ public interface BuildStrategy {
 
     void setWasmVersion(WasmBinaryVersion wasmVersion);
 
-    void setHeapSize(int heapSize);
+    void setMinHeapSize(int minHeapSize);
+
+    void setMaxHeapSize(int maxHeapSize);
+
+    void setLongjmpSupported(boolean value);
+
+    void setHeapDump(boolean heapDump);
+
+    void setShortFileNames(boolean shortFileNames);
+
+    void setAssertionsRemoved(boolean assertionsRemoved);
 
     BuildResult build() throws BuildException;
 }

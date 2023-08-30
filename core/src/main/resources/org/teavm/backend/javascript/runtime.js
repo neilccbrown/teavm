@@ -24,7 +24,7 @@ function $rt_nextId() {
     return x;
 }
 function $rt_compare(a, b) {
-    return a > b ? 1 : a < b ? -1 : 0;
+    return a > b ? 1 : a < b ? -1 : a === b ? 0 : 1;
 }
 function $rt_isInstance(obj, cls) {
     return obj !== null && !!obj.constructor.$meta && $rt_isAssignable(obj.constructor, cls);
@@ -32,6 +32,9 @@ function $rt_isInstance(obj, cls) {
 function $rt_isAssignable(from, to) {
     if (from === to) {
         return true;
+    }
+    if (to.$meta.item !== null) {
+        return from.$meta.item !== null && $rt_isAssignable(from.$meta.item, to.$meta.item);
     }
     var supertypes = from.$meta.supertypes;
     for (var i = 0; i < supertypes.length; i = (i + 1) | 0) {
@@ -41,17 +44,41 @@ function $rt_isAssignable(from, to) {
     }
     return false;
 }
+function $rt_castToInterface(obj, cls) {
+    if (obj !== null && !$rt_isInstance(obj, cls)) {
+        $rt_throwCCE();
+    }
+    return obj;
+}
+function $rt_castToClass(obj, cls) {
+    if (obj !== null && !(obj instanceof cls)) {
+        $rt_throwCCE();
+    }
+    return obj;
+}
+Array.prototype.fill = Array.prototype.fill || function(value,start,end) {
+    var len = this.length;
+    if (!len) return this;
+    start = start | 0;
+    var i = start < 0
+        ? Math.max(len + start, 0)
+        : Math.min(start, len);
+    end = end === undefined ? len : end | 0;
+    end = end < 0
+        ? Math.max(len + end, 0)
+        : Math.min(end, len);
+    for (; i < end; i++) {
+        this[i] = value;
+    }
+    return this;
+};
 function $rt_createArray(cls, sz) {
     var data = new Array(sz);
-    var arr = new $rt_array(cls, data);
-    if (sz > 0) {
-        var i = 0;
-        do {
-            data[i] = null;
-            i = (i + 1) | 0;
-        } while (i < sz);
-    }
-    return arr;
+    data.fill(null);
+    return new $rt_array(cls, data);
+}
+function $rt_createArrayFromData(cls, init) {
+    return $rt_wrapArray(cls, init);
 }
 function $rt_wrapArray(cls, data) {
     return new $rt_array(cls, data);
@@ -59,37 +86,86 @@ function $rt_wrapArray(cls, data) {
 function $rt_createUnfilledArray(cls, sz) {
     return new $rt_array(cls, new Array(sz));
 }
-function $rt_createLongArray(sz) {
-    var data = new Array(sz);
-    var arr = new $rt_array($rt_longcls(), data);
-    for (var i = 0; i < sz; i = (i + 1) | 0) {
-        data[i] = Long_ZERO;
-    }
-    return arr;
-}
 function $rt_createNumericArray(cls, nativeArray) {
     return new $rt_array(cls, nativeArray);
+}
+var $rt_createLongArray;
+var $rt_createLongArrayFromData;
+if (typeof BigInt64Array !== 'function') {
+    $rt_createLongArray = function(sz) {
+        var data = new Array(sz);
+        var arr = new $rt_array($rt_longcls(), data);
+        data.fill(Long_ZERO);
+        return arr;
+    }
+    $rt_createLongArrayFromData = function(init) {
+        return new $rt_array($rt_longcls(), init);
+    }
+} else {
+    $rt_createLongArray = function (sz) {
+        return $rt_createNumericArray($rt_longcls(), new BigInt64Array(sz));
+    }
+    $rt_createLongArrayFromData = function(data) {
+        var buffer = new BigInt64Array(data.length);
+        buffer.set(data);
+        return $rt_createNumericArray($rt_longcls(), buffer);
+    }
 }
 function $rt_createCharArray(sz) {
     return $rt_createNumericArray($rt_charcls(), new Uint16Array(sz));
 }
+function $rt_createCharArrayFromData(data) {
+    var buffer = new Uint16Array(data.length);
+    buffer.set(data);
+    return $rt_createNumericArray($rt_charcls(), buffer);
+}
 function $rt_createByteArray(sz) {
     return $rt_createNumericArray($rt_bytecls(), new Int8Array(sz));
+}
+function $rt_createByteArrayFromData(data) {
+    var buffer = new Int8Array(data.length);
+    buffer.set(data);
+    return $rt_createNumericArray($rt_bytecls(), buffer);
 }
 function $rt_createShortArray(sz) {
     return $rt_createNumericArray($rt_shortcls(), new Int16Array(sz));
 }
+function $rt_createShortArrayFromData(data) {
+    var buffer = new Int16Array(data.length);
+    buffer.set(data);
+    return $rt_createNumericArray($rt_shortcls(), buffer);
+}
 function $rt_createIntArray(sz) {
     return $rt_createNumericArray($rt_intcls(), new Int32Array(sz));
+}
+function $rt_createIntArrayFromData(data) {
+    var buffer = new Int32Array(data.length);
+    buffer.set(data);
+    return $rt_createNumericArray($rt_intcls(), buffer);
 }
 function $rt_createBooleanArray(sz) {
     return $rt_createNumericArray($rt_booleancls(), new Int8Array(sz));
 }
+function $rt_createBooleanArrayFromData(data) {
+    var buffer = new Int8Array(data.length);
+    buffer.set(data);
+    return $rt_createNumericArray($rt_booleancls(), buffer);
+}
 function $rt_createFloatArray(sz) {
     return $rt_createNumericArray($rt_floatcls(), new Float32Array(sz));
 }
+function $rt_createFloatArrayFromData(data) {
+    var buffer = new Float32Array(data.length);
+    buffer.set(data);
+    return $rt_createNumericArray($rt_floatcls(), buffer);
+}
 function $rt_createDoubleArray(sz) {
     return $rt_createNumericArray($rt_doublecls(), new Float64Array(sz));
+}
+function $rt_createDoubleArrayFromData(data) {
+    var buffer = new Float64Array(data.length);
+    buffer.set(data);
+    return $rt_createNumericArray($rt_doublecls(), buffer);
 }
 
 function $rt_arraycls(cls) {
@@ -97,8 +173,18 @@ function $rt_arraycls(cls) {
     if (result === null) {
         var arraycls = {};
         var name = "[" + cls.$meta.binaryName;
-        arraycls.$meta = { item : cls, supertypes : [$rt_objcls()], primitive : false, superclass : $rt_objcls(),
-                name : name, binaryName : name, enum : false };
+        arraycls.$meta = {
+            item: cls,
+            supertypes: [$rt_objcls()],
+            primitive: false,
+            superclass: $rt_objcls(),
+            name: name,
+            binaryName: name,
+            enum: false,
+            simpleName: null,
+            declaringClass: null,
+            enclosingClass: null
+        };
         arraycls.classObject = null;
         arraycls.$array = null;
         result = arraycls;
@@ -110,7 +196,7 @@ function $rt_createcls() {
     return {
         $array : null,
         classObject : null,
-        $meta : {
+        $meta: {
             supertypes : [],
             superclass : null
         }
@@ -123,6 +209,9 @@ function $rt_createPrimitiveCls(name, binaryName) {
     cls.$meta.binaryName = binaryName;
     cls.$meta.enum = false;
     cls.$meta.item = null;
+    cls.$meta.simpleName = null;
+    cls.$meta.declaringClass = null;
+    cls.$meta.enclosingClass = null;
     return cls;
 }
 var $rt_booleanclsCache = null;
@@ -191,14 +280,18 @@ function $rt_voidcls() {
 function $rt_throw(ex) {
     throw $rt_exception(ex);
 }
+var $rt_javaExceptionProp = Symbol("javaException")
 function $rt_exception(ex) {
     var err = ex.$jsException;
     if (!err) {
-        err = new Error("Java exception thrown");
+        var javaCause = $rt_throwableCause(ex);
+        var jsCause = javaCause !== null ? javaCause.$jsException : undefined;
+        var cause = typeof jsCause === "object" ? { cause : jsCause } : undefined;
+        err = new JavaError("Java exception thrown", cause);
         if (typeof Error.captureStackTrace === "function") {
             Error.captureStackTrace(err);
         }
-        err.$javaException = ex;
+        err[$rt_javaExceptionProp] = ex;
         ex.$jsException = err;
         $rt_fillStack(err, ex);
     }
@@ -207,7 +300,7 @@ function $rt_exception(ex) {
 function $rt_fillStack(err, ex) {
     if (typeof $rt_decodeStack === "function" && err.stack) {
         var stack = $rt_decodeStack(err.stack);
-        var javaStack = $rt_createArray($rt_objcls(), stack.length);
+        var javaStack = $rt_createArray($rt_stecls(), stack.length);
         var elem;
         var noStack = false;
         for (var i = 0; i < stack.length; ++i) {
@@ -372,28 +465,56 @@ function $rt_assertNotNaN(value) {
     }
     return value;
 }
-var $rt_stdoutBuffer = "";
-var $rt_putStdout = typeof $rt_putStdoutCustom === "function" ? $rt_putStdoutCustom : function(ch) {
-    if (ch === 0xA) {
-        if (console) {
-            console.info($rt_stdoutBuffer);
+function $rt_createOutputFunction(printFunction) {
+    var buffer = "";
+    var utf8Buffer = 0;
+    var utf8Remaining = 0;
+
+    function putCodePoint(ch) {
+        if (ch === 0xA) {
+            printFunction(buffer);
+            buffer = "";
+        } else if (ch < 0x10000) {
+            buffer += String.fromCharCode(ch);
+        } else {
+            ch = (ch - 0x10000) | 0;
+            var hi = (ch >> 10) + 0xD800;
+            var lo = (ch & 0x3FF) + 0xDC00;
+            buffer += String.fromCharCode(hi, lo);
         }
-        $rt_stdoutBuffer = "";
-    } else {
-        $rt_stdoutBuffer += String.fromCharCode(ch);
     }
-};
-var $rt_stderrBuffer = "";
-var $rt_putStderr = typeof $rt_putStderrCustom === "function" ? $rt_putStderrCustom : function(ch) {
-    if (ch === 0xA) {
-        if (console) {
-            console.error($rt_stderrBuffer);
+
+    return function(ch) {
+        if ((ch & 0x80) === 0) {
+            putCodePoint(ch);
+        } else if ((ch & 0xC0) === 0x80) {
+            if (utf8Buffer > 0) {
+                utf8Remaining <<= 6;
+                utf8Remaining |= ch & 0x3F;
+                if (--utf8Buffer === 0) {
+                    putCodePoint(utf8Remaining);
+                }
+            }
+        } else if ((ch & 0xE0) === 0xC0) {
+            utf8Remaining = ch & 0x1F;
+            utf8Buffer = 1;
+        } else if ((ch & 0xF0) === 0xE0) {
+            utf8Remaining = ch & 0x0F;
+            utf8Buffer = 2;
+        } else if ((ch & 0xF8) === 0xF0) {
+            utf8Remaining = ch & 0x07;
+            utf8Buffer = 3;
         }
-        $rt_stderrBuffer = "";
-    } else {
-        $rt_stderrBuffer += String.fromCharCode(ch);
-    }
-};
+    };
+}
+
+var $rt_putStdout = typeof $rt_putStdoutCustom === "function"
+    ? $rt_putStdoutCustom
+    : typeof console === "object" ? $rt_createOutputFunction(function(msg) { console.info(msg); }) : function() {};
+var $rt_putStderr = typeof $rt_putStderrCustom === "function"
+    ? $rt_putStderrCustom
+    : typeof console === "object" ? $rt_createOutputFunction(function(msg) { console.error(msg); }) : function() {};
+
 var $rt_packageData = null;
 function $rt_packages(data) {
     var i = 0;
@@ -442,6 +563,20 @@ function $rt_metadata(data) {
 
         m.accessLevel = data[i++];
 
+        var innerClassInfo = data[i++];
+        if (innerClassInfo === 0) {
+            m.simpleName = null;
+            m.declaringClass = null;
+            m.enclosingClass = null;
+        } else {
+            var enclosingClass = innerClassInfo[0];
+            m.enclosingClass = enclosingClass !== 0 ? enclosingClass : null;
+            var declaringClass = innerClassInfo[1];
+            m.declaringClass = declaringClass !== 0 ? declaringClass : null;
+            var simpleName = innerClassInfo[2];
+            m.simpleName = simpleName !== 0 ? simpleName : null;
+        }
+
         var clinit = data[i++];
         cls.$clinit = clinit !== 0 ? clinit : function() {};
 
@@ -460,6 +595,31 @@ function $rt_metadata(data) {
         }
 
         cls.$array = null;
+    }
+}
+function $rt_wrapFunction0(f) {
+    return function() {
+        return f(this);
+    }
+}
+function $rt_wrapFunction1(f) {
+    return function(p1) {
+        return f(this, p1);
+    }
+}
+function $rt_wrapFunction2(f) {
+    return function(p1, p2) {
+        return f(this, p1, p2);
+    }
+}
+function $rt_wrapFunction3(f) {
+    return function(p1, p2, p3) {
+        return f(this, p1, p2, p3, p3);
+    }
+}
+function $rt_wrapFunction4(f) {
+    return function(p1, p2, p3, p4) {
+        return f(this, p1, p2, p3, p4);
     }
 }
 function $rt_threadStarter(f) {
@@ -498,15 +658,36 @@ function $rt_eraseClinit(target) {
 
 var $rt_numberConversionView = new DataView(new ArrayBuffer(8));
 
-function $rt_doubleToLongBits(n) {
-    $rt_numberConversionView.setFloat64(0, n, true);
-    return new Long($rt_numberConversionView.getInt32(0, true), $rt_numberConversionView.getInt32(4, true));
+var $rt_doubleToLongBits;
+var $rt_longBitsToDouble;
+if (typeof BigInt !== 'function') {
+    $rt_doubleToLongBits = function(n) {
+        $rt_numberConversionView.setFloat64(0, n, true);
+        return new Long($rt_numberConversionView.getInt32(0, true), $rt_numberConversionView.getInt32(4, true));
+    }
+    $rt_longBitsToDouble = function(n) {
+        $rt_numberConversionView.setInt32(0, n.lo, true);
+        $rt_numberConversionView.setInt32(4, n.hi, true);
+        return $rt_numberConversionView.getFloat64(0, true);
+    }
+} else {
+    $rt_doubleToLongBits = function(n) {
+        $rt_numberConversionView.setFloat64(0, n, true);
+        // For compatibility with Safari
+        var lo = $rt_numberConversionView.getInt32(0, true);
+        var hi = $rt_numberConversionView.getInt32(4, true);
+        return BigInt.asIntN(64, BigInt.asUintN(32, BigInt(lo)) | (BigInt(hi) << BigInt(32)));
+    }
+    $rt_longBitsToDouble = function(n) {
+        // For compatibility with Safari
+        var hi = Number(BigInt.asIntN(32, n >> BigInt(32)));
+        var lo = Number(BigInt.asIntN(32, n & BigInt(0xFFFFFFFF)));
+        $rt_numberConversionView.setInt32(0, lo, true);
+        $rt_numberConversionView.setInt32(4, hi, true);
+        return $rt_numberConversionView.getFloat64(0, true);
+    }
 }
-function $rt_longBitsToDouble(n) {
-    $rt_numberConversionView.setInt32(0, n.lo, true);
-    $rt_numberConversionView.setInt32(4, n.hi, true);
-    return $rt_numberConversionView.getFloat64(0, true);
-}
+
 function $rt_floatToIntBits(n) {
     $rt_numberConversionView.setFloat32(0, n);
     return $rt_numberConversionView.getInt32(0);
@@ -516,17 +697,49 @@ function $rt_intBitsToFloat(n) {
     return $rt_numberConversionView.getFloat32(0);
 }
 
+var JavaError;
+if (typeof Reflect === 'object') {
+    var defaultMessage = Symbol("defaultMessage");
+    JavaError = function JavaError(message, cause) {
+        var self = Reflect.construct(Error, [undefined, cause], JavaError);
+        Object.setPrototypeOf(self, JavaError.prototype);
+        self[defaultMessage] = message;
+        return self;
+    }
+    JavaError.prototype = Object.create(Error.prototype, {
+        constructor: {
+            configurable: true,
+            writable: true,
+            value: JavaError
+        },
+        message: {
+            get: function() {
+                var javaException = this[$rt_javaExceptionProp];
+                if (typeof javaException === 'object') {
+                    var javaMessage = $rt_throwableMessage(javaException);
+                    if (typeof javaMessage === "object") {
+                        return javaMessage.toString();
+                    }
+                }
+                return this[defaultMessage];
+            }
+        }
+    });
+} else {
+    JavaError = Error;
+}
+
 function $rt_javaException(e) {
-    return e instanceof Error && typeof e.$javaException === 'object' ? e.$javaException : null;
+    return e instanceof Error && typeof e[$rt_javaExceptionProp] === 'object' ? e[$rt_javaExceptionProp] : null;
 }
 function $rt_jsException(e) {
     return typeof e.$jsException === 'object' ? e.$jsException : null;
 }
 function $rt_wrapException(err) {
-    var ex = err.$javaException;
+    var ex = err[$rt_javaExceptionProp];
     if (!ex) {
         ex = $rt_createException($rt_str("(JavaScript) " + err.toString()));
-        err.$javaException = ex;
+        err[$rt_javaExceptionProp] = ex;
         ex.$jsException = err;
         $rt_fillStack(err, ex);
     }
@@ -573,46 +786,86 @@ function Long(lo, hi) {
 Long.prototype.__teavm_class__ = function() {
     return "long";
 };
-Long.prototype.toString = function() {
-    var result = [];
-    var n = this;
-    var positive = Long_isPositive(n);
-    if (!positive) {
-        n = Long_neg(n);
-    }
-    var radix = new Long(10, 0);
-    do {
-        var divRem = Long_divRem(n, radix);
-        result.push(String.fromCharCode(48 + divRem[1].lo));
-        n = divRem[0];
-    } while (n.lo !== 0 || n.hi !== 0);
-    result = result.reverse().join('');
-    return positive ? result : "-" + result;
-};
-Long.prototype.valueOf = function() {
-    return Long_toNumber(this);
-};
-var Long_ZERO = new Long(0, 0);
-var Long_MAX_NORMAL = 1 << 18;
-function Long_fromInt(val) {
-    return val >= 0 ? new Long(val, 0) : new Long(val, -1);
+function Long_isPositive(a) {
+    return (a.hi & 0x80000000) === 0;
 }
-function Long_fromNumber(val) {
-    if (val >= 0) {
-        return new Long(val | 0, (val / 0x100000000) | 0);
-    } else {
-        return Long_neg(new Long(-val | 0, (-val / 0x100000000) | 0));
-    }
-}
-function Long_toNumber(val) {
-    var lo = val.lo;
-    var hi = val.hi;
-    if (lo < 0) {
-        lo += 0x100000000;
-    }
-    return 0x100000000 * hi + lo;
+function Long_isNegative(a) {
+    return (a.hi & 0x80000000) !== 0;
 }
 
+var Long_MAX_NORMAL = 1 << 18;
+var Long_ZERO;
+var Long_create;
+var Long_fromInt;
+var Long_fromNumber;
+var Long_toNumber;
+var Long_hi;
+var Long_lo;
+if (typeof BigInt !== "function") {
+    Long.prototype.toString = function() {
+        var result = [];
+        var n = this;
+        var positive = Long_isPositive(n);
+        if (!positive) {
+            n = Long_neg(n);
+        }
+        var radix = new Long(10, 0);
+        do {
+            var divRem = Long_divRem(n, radix);
+            result.push(String.fromCharCode(48 + divRem[1].lo));
+            n = divRem[0];
+        } while (n.lo !== 0 || n.hi !== 0);
+        result = result.reverse().join('');
+        return positive ? result : "-" + result;
+    };
+    Long.prototype.valueOf = function() {
+        return Long_toNumber(this);
+    };
+
+    Long_ZERO = new Long(0, 0);
+    Long_fromInt = function(val) {
+        return new Long(val, (-(val < 0)) | 0);
+    }
+    Long_fromNumber = function(val) {
+        if (val >= 0) {
+            return new Long(val | 0, (val / 0x100000000) | 0);
+        } else {
+            return Long_neg(new Long(-val | 0, (-val / 0x100000000) | 0));
+        }
+    }
+    Long_create = function(lo, hi) {
+        return new Long(lo, hi);
+    }
+    Long_toNumber = function(val) {
+        return 0x100000000 * val.hi + (val.lo >>> 0);
+    }
+    Long_hi = function(val) {
+        return val.hi;
+    }
+    Long_lo = function(val) {
+        return val.lo;
+    }
+} else {
+    Long_ZERO = BigInt(0);
+    Long_create = function(lo, hi) {
+        return BigInt.asIntN(64, BigInt.asUintN(32, BigInt(lo)) | (BigInt(hi) << BigInt(32)));
+    }
+    Long_fromInt = function(val) {
+        return BigInt(val);
+    }
+    Long_fromNumber = function(val) {
+        return BigInt(val >= 0 ? Math.floor(val) : Math.ceil(val));
+    }
+    Long_toNumber = function(val) {
+        return Number(val);
+    }
+    Long_hi = function(val) {
+        return Number(BigInt.asIntN(64, val >> BigInt(32))) | 0;
+    }
+    Long_lo = function(val) {
+        return Number(BigInt.asIntN(32, val)) | 0;
+    }
+}
 var $rt_imul = Math.imul || function(a, b) {
     var ah = (a >>> 16) & 0xFFFF;
     var al = a & 0xFFFF;
@@ -621,20 +874,37 @@ var $rt_imul = Math.imul || function(a, b) {
     return (al * bl + (((ah * bl + al * bh) << 16) >>> 0)) | 0;
 };
 var $rt_udiv = function(a, b) {
-    if (a < 0) {
-        a += 0x100000000;
-    }
-    if (b < 0) {
-        b += 0x100000000;
-    }
-    return (a / b) | 0;
+    return ((a >>> 0) / (b >>> 0)) >>> 0;
 };
 var $rt_umod = function(a, b) {
-    if (a < 0) {
-        a += 0x100000000;
-    }
-    if (b < 0) {
-        b += 0x100000000;
-    }
-    return (a % b) | 0;
+    return ((a >>> 0) % (b >>> 0)) >>> 0;
 };
+function $rt_checkBounds(index, array) {
+    if (index < 0 || index >= array.length) {
+        $rt_throwAIOOBE();
+    }
+    return index;
+}
+function $rt_checkUpperBound(index, array) {
+    if (index >= array.length) {
+        $rt_throwAIOOBE();
+    }
+    return index;
+}
+function $rt_checkLowerBound(index) {
+    if (index < 0) {
+        $rt_throwAIOOBE();
+    }
+    return index;
+}
+function $rt_classWithoutFields(superclass) {
+    if (superclass === 0) {
+        return function() {};
+    }
+    if (superclass === void 0) {
+        superclass = $rt_objcls();
+    }
+    return function() {
+        superclass.call(this);
+    };
+}

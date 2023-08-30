@@ -16,10 +16,6 @@
 package org.teavm.classlib.java.lang;
 
 import org.teavm.classlib.impl.unicode.UnicodeHelper;
-import org.teavm.interop.DelegateTo;
-import org.teavm.interop.Import;
-import org.teavm.interop.c.Include;
-import org.teavm.platform.Platform;
 import org.teavm.platform.metadata.StringResource;
 
 public class TCharacter extends TObject implements TComparable<TCharacter> {
@@ -90,6 +86,9 @@ public class TCharacter extends TObject implements TComparable<TCharacter> {
     public static final int SIZE = 16;
     static final int ERROR = 0xFFFFFFFF;
     private static int[] digitMapping;
+    private static int[] titleCaseMapping;
+    private static int[] upperCaseMapping;
+    private static int[] lowerCaseMapping;
     private static UnicodeHelper.Range[] classMapping;
     private char value;
     private static TCharacter[] characterCache = new TCharacter[128];
@@ -233,35 +232,87 @@ public class TCharacter extends TObject implements TComparable<TCharacter> {
         return (char) toLowerCase((int) ch);
     }
 
-    @DelegateTo("toLowerCaseLowLevel")
     public static int toLowerCase(int ch) {
-        return Platform.stringFromCharCode(ch).toLowerCase().charCodeAt(0);
+        return mapChar(getLowerCaseMapping(), ch);
     }
 
-    private static int toLowerCaseLowLevel(int codePoint) {
-        return toLowerCaseSystem(codePoint);
+    private static int[] getLowerCaseMapping() {
+        if (lowerCaseMapping == null) {
+            lowerCaseMapping = UnicodeHelper.decodeCaseMapping(acquireLowerCaseMapping().getValue());
+        }
+        return lowerCaseMapping;
     }
 
-    @Import(module = "teavm", name = "towlower")
-    @Include("wctype.h")
-    private static native int toLowerCaseSystem(int codePoint);
+    private static native StringResource acquireLowerCaseMapping();
+
 
     public static char toUpperCase(char ch) {
         return (char) toUpperCase((int) ch);
     }
 
-    @DelegateTo("toUpperCaseLowLevel")
     public static int toUpperCase(int codePoint) {
-        return Platform.stringFromCharCode(codePoint).toUpperCase().charCodeAt(0);
+        return mapChar(getUpperCaseMapping(), codePoint);
     }
 
-    private static int toUpperCaseLowLevel(int codePoint) {
-        return toUpperCaseSystem(codePoint);
+    private static int[] getUpperCaseMapping() {
+        if (upperCaseMapping == null) {
+            upperCaseMapping = UnicodeHelper.decodeCaseMapping(acquireUpperCaseMapping().getValue());
+        }
+        return upperCaseMapping;
     }
 
-    @Import(module = "teavm", name = "towupper")
-    @Include("wctype.h")
-    private static native int toUpperCaseSystem(int codePoint);
+    private static native StringResource acquireUpperCaseMapping();
+
+    public static int toTitleCase(int codePoint) {
+        codePoint = mapChar(getTitleCaseMapping(), codePoint);
+        if (codePoint == codePoint) {
+            codePoint = toUpperCase(codePoint);
+        }
+        return codePoint;
+    }
+
+    public static char toTitleCase(char c) {
+        return (char) toTitleCase((int) c);
+    }
+
+    private static int[] getTitleCaseMapping() {
+        if (titleCaseMapping == null) {
+            titleCaseMapping = UnicodeHelper.decodeCaseMapping(acquireTitleCaseMapping().getValue());
+        }
+        return titleCaseMapping;
+    }
+
+    private static native StringResource acquireTitleCaseMapping();
+
+    private static int mapChar(int[] table, int codePoint) {
+        int index = binarySearchTable(table, codePoint);
+        if (index < 0 || index >= table.length / 2) {
+            return 0;
+        }
+        return codePoint + table[index * 2 + 1];
+    }
+
+    private static int binarySearchTable(int[] data, int key) {
+        int l = 0;
+        int u = data.length / 2 - 1;
+        while (true) {
+            int i = (l + u) / 2;
+            int e = data[i * 2];
+            if (e == key) {
+                return i;
+            } else if (e > key) {
+                u = i - 1;
+                if (u < l) {
+                    return i - 1;
+                }
+            } else {
+                l = i + 1;
+                if (l > u) {
+                    return i;
+                }
+            }
+        }
+    }
 
     public static int digit(char ch, int radix) {
         return digit((int) ch, radix);
@@ -314,7 +365,7 @@ public class TCharacter extends TObject implements TComparable<TCharacter> {
 
     private static int[] getDigitMapping() {
         if (digitMapping == null) {
-            digitMapping = UnicodeHelper.decodeIntByte(obtainDigitMapping().getValue());
+            digitMapping = UnicodeHelper.decodeIntPairsDiff(obtainDigitMapping().getValue());
         }
         return digitMapping;
     }

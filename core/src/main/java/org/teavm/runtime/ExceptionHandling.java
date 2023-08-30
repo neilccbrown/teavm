@@ -25,38 +25,64 @@ public final class ExceptionHandling {
     private ExceptionHandling() {
     }
 
+    @Unmanaged
     public static native CallSite findCallSiteById(int id, Address frame);
 
+    @Unmanaged
+    public static native boolean isJumpSupported();
+
+    @Unmanaged
+    public static native void jumpToFrame(Address frame, int id);
+
+    @Unmanaged
+    public static native void abort();
+
+    @Unmanaged
+    private static native boolean isObfuscated();
+
+    @Unmanaged
     public static void printStack() {
         Address stackFrame = ShadowStack.getStackTop();
         while (stackFrame != null) {
             int callSiteId = ShadowStack.getCallSiteId(stackFrame);
-            CallSite callSite = findCallSiteById(callSiteId, stackFrame);
-            CallSiteLocation location = callSite.location;
-            MethodLocation methodLocation = location.method;
-
-            Console.printString("    at ");
-            if (methodLocation.className == null || methodLocation.methodName == null) {
-                Console.printString("(Unknown method)");
+            if (isObfuscated()) {
+                Console.printString("\tat Obfuscated.obfuscated(Obfuscated.java:");
+                Console.printInt(callSiteId);
+                Console.printString(")\n");
             } else {
-                Console.printString(methodLocation.className.value);
-                Console.printString(".");
-                Console.printString(methodLocation.methodName.value);
+                CallSite callSite = findCallSiteById(callSiteId, stackFrame);
+                CallSiteLocation location = callSite.location;
+                while (location != null) {
+                    MethodLocation methodLocation = location.method;
+
+                    if (methodLocation != null) {
+                        Console.printString("\tat ");
+                        if (methodLocation.className == null || methodLocation.methodName == null) {
+                            Console.printString("(Unknown method)");
+                        } else {
+                            Console.printString(methodLocation.className.value);
+                            Console.printString(".");
+                            Console.printString(methodLocation.methodName.value);
+                        }
+                        Console.printString("(");
+                        if (methodLocation.fileName != null && location.lineNumber >= 0) {
+                            Console.printString(methodLocation.fileName.value);
+                            Console.printString(":");
+                            Console.printInt(location.lineNumber);
+                        }
+                        Console.printString(")\n");
+                    }
+
+                    location = location.next;
+                }
             }
-            Console.printString("(");
-            if (methodLocation.fileName != null && location.lineNumber >= 0) {
-                Console.printString(methodLocation.fileName.value);
-                Console.printString(":");
-                Console.printInt(location.lineNumber);
-            }
-            Console.printString(")\n");
             stackFrame = ShadowStack.getNextStackFrame(stackFrame);
         }
     }
 
     private static Throwable thrownException;
 
-    @Export(name = "sys_catchException")
+    @Export(name = "teavm_catchException")
     @Unmanaged
     public static Throwable catchException() {
         Throwable exception = thrownException;
@@ -72,66 +98,130 @@ public final class ExceptionHandling {
         RuntimeClass exceptionClass = RuntimeClass.getClass(exceptionPtr);
 
         Address stackFrame = ShadowStack.getStackTop();
+        int handlerId = 0;
         stackLoop: while (stackFrame != null) {
             int callSiteId = ShadowStack.getCallSiteId(stackFrame);
-            CallSite callSite = findCallSiteById(callSiteId, stackFrame);
-            ExceptionHandler handler = callSite.firstHandler;
+            if (callSiteId >= 0) {
+                CallSite callSite = findCallSiteById(callSiteId, stackFrame);
+                ExceptionHandler handler = callSite.firstHandler;
 
-            while (handler != null) {
-                if (handler.exceptionClass == null || handler.exceptionClass.isSupertypeOf.apply(exceptionClass)) {
-                    ShadowStack.setExceptionHandlerId(stackFrame, handler.id);
-                    break stackLoop;
+                while (handler != null) {
+                    if (handler.exceptionClass == null || handler.exceptionClass.isSupertypeOf.apply(exceptionClass)) {
+                        handlerId = handler.id;
+                        if (!isJumpSupported()) {
+                            ShadowStack.setExceptionHandlerId(stackFrame, handlerId);
+                        }
+                        break stackLoop;
+                    }
+                    handler = handler.next;
                 }
-                handler = handler.next;
-            }
 
-            ShadowStack.setExceptionHandlerId(stackFrame, callSiteId - 1);
+                if (!isJumpSupported()) {
+                    ShadowStack.setExceptionHandlerId(stackFrame, callSiteId - 1);
+                }
+            }
             stackFrame = ShadowStack.getNextStackFrame(stackFrame);
+        }
+
+        if (stackFrame == null) {
+            stackFrame = ShadowStack.getStackTop();
+            while (stackFrame != null) {
+                int callSiteId = ShadowStack.getCallSiteId(stackFrame);
+                if (callSiteId >= 0) {
+                    ShadowStack.setExceptionHandlerId(stackFrame, callSiteId + 1);
+                }
+                stackFrame = ShadowStack.getNextStackFrame(stackFrame);
+            }
+            printStack();
+            abort();
+        } else if (isJumpSupported()) {
+            jumpToFrame(stackFrame, handlerId);
         }
     }
 
     @Unmanaged
     public static void throwClassCastException() {
-        throw new ClassCastException();
+        throwException(new ClassCastException());
     }
 
     @Unmanaged
+    @Export(name = "teavm_throwNullPointerException")
     public static void throwNullPointerException() {
-        throw new NullPointerException();
+        throwException(new NullPointerException());
     }
 
     @Unmanaged
-    public static int callStackSize() {
+    @Export(name = "teavm_throwArrayIndexOutOfBoundsException")
+    public static void throwArrayIndexOutOfBoundsException() {
+        throwException(new ArrayIndexOutOfBoundsException());
+    }
+
+    @Unmanaged
+    private static int callStackSize() {
         Address stackFrame = ShadowStack.getStackTop();
         int size = 0;
         while (stackFrame != null) {
+            int callSiteId = ShadowStack.getCallSiteId(stackFrame);
+            if (callSiteId >= 0) {
+                CallSite callSite = findCallSiteById(callSiteId, stackFrame);
+                CallSiteLocation location = callSite.location;
+                if (isObfuscated() || location == null) {
+                    size++;
+                } else {
+                    while (location != null) {
+                        size++;
+                        location = location.next;
+                    }
+                }
+            }
+
             stackFrame = ShadowStack.getNextStackFrame(stackFrame);
-            size++;
         }
-        return size + 1;
+        return size;
     }
 
     @Unmanaged
-    public static void fillStackTrace(StackTraceElement[] target) {
+    public static StackTraceElement[] fillStackTrace() {
         Address stackFrame = ShadowStack.getStackTop();
+        int size = callStackSize();
+
+        ShadowStack.allocStack(1);
+        ShadowStack.removeGCRoot(0);
+        StackTraceElement[] target = new StackTraceElement[size];
+        ShadowStack.registerGCRoot(0, target);
+
         int index = 0;
-        while (stackFrame != null && index < target.length) {
+        while (stackFrame != null) {
             int callSiteId = ShadowStack.getCallSiteId(stackFrame);
-            CallSite callSite = findCallSiteById(callSiteId, stackFrame);
-            CallSiteLocation location = callSite.location;
-            MethodLocation methodLocation = location.method;
-            StackTraceElement element = createElement(
-                    location != null && methodLocation.className != null ? methodLocation.className.value : "",
-                    location != null && methodLocation.methodName != null ? methodLocation.methodName.value : "",
-                    location != null && methodLocation.fileName != null ? methodLocation.fileName.value : null,
-                    location != null ? location.lineNumber : -1);
-            target[index++] = element;
+            if (callSiteId >= 0) {
+                CallSite callSite = findCallSiteById(callSiteId, stackFrame);
+                CallSiteLocation location = callSite.location;
+                if (isObfuscated()) {
+                    target[index++] = new StackTraceElement("Obfuscated", "obfuscated", "Obfuscated.java", callSiteId);
+                } else if (location == null) {
+                    target[index++] = new StackTraceElement("", "", null, -1);
+                } else {
+                    while (location != null) {
+                        MethodLocation methodLocation = location.method;
+                        StackTraceElement element;
+                        if (methodLocation != null) {
+                            element = new StackTraceElement(
+                                    methodLocation.className != null ? methodLocation.className.value : "",
+                                    methodLocation.methodName != null ? methodLocation.methodName.value : "",
+                                    methodLocation.fileName != null ? methodLocation.fileName.value : null,
+                                    location.lineNumber);
+                        } else {
+                            element = new StackTraceElement("", "", null, location.lineNumber);
+                        }
+                        target[index++] = element;
+                        location = location.next;
+                    }
+                }
+            }
             stackFrame = ShadowStack.getNextStackFrame(stackFrame);
         }
-    }
+        ShadowStack.releaseStack(1);
 
-    private static StackTraceElement createElement(String className, String methodName, String fileName,
-            int lineNumber) {
-        return new StackTraceElement(className, methodName, fileName, lineNumber);
+        return target;
     }
 }

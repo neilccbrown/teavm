@@ -17,8 +17,8 @@ package org.teavm.classlib.java.lang;
 
 import java.io.PrintStream;
 import java.io.PrintWriter;
+import org.teavm.classlib.PlatformDetector;
 import org.teavm.classlib.java.util.TArrays;
-import org.teavm.interop.DelegateTo;
 import org.teavm.interop.Remove;
 import org.teavm.interop.Rename;
 import org.teavm.interop.Superclass;
@@ -101,15 +101,10 @@ public class TThrowable extends RuntimeException {
     }
 
     @Override
-    @DelegateTo("fillInStackTraceLowLevel")
     public Throwable fillInStackTrace() {
-        return this;
-    }
-
-    private TThrowable fillInStackTraceLowLevel() {
-        int stackSize = ExceptionHandling.callStackSize() - 1;
-        stackTrace = new TStackTraceElement[stackSize];
-        ExceptionHandling.fillStackTrace((StackTraceElement[]) (Object) stackTrace);
+        if (PlatformDetector.isLowLevel()) {
+            stackTrace = (TStackTraceElement[]) (Object) ExceptionHandling.fillStackTrace();
+        }
         return this;
     }
 
@@ -165,7 +160,7 @@ public class TThrowable extends RuntimeException {
         stream.println();
         if (stackTrace != null) {
             for (TStackTraceElement element : stackTrace) {
-                stream.print("    at ");
+                stream.print("\tat ");
                 stream.println(element);
             }
         }
@@ -184,7 +179,7 @@ public class TThrowable extends RuntimeException {
         stream.println();
         if (stackTrace != null) {
             for (TStackTraceElement element : stackTrace) {
-                stream.print("  at ");
+                stream.print("\tat ");
                 stream.println(element);
             }
         }

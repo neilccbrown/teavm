@@ -95,6 +95,9 @@ import org.teavm.model.instructions.InvocationType;
 import org.teavm.model.instructions.InvokeInstruction;
 import org.teavm.model.instructions.RaiseInstruction;
 import org.teavm.model.instructions.StringConstantInstruction;
+import org.teavm.model.transformation.BoundCheckInsertion;
+import org.teavm.model.transformation.NullCheckFilter;
+import org.teavm.model.transformation.NullCheckInsertion;
 import org.teavm.model.util.AsyncMethodFinder;
 import org.teavm.model.util.ProgramUtils;
 import org.teavm.vm.BuildTarget;
@@ -112,7 +115,7 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
             "currentThread", Thread.class);
 
     private TeaVMTargetController controller;
-    private boolean minifying = true;
+    private boolean obfuscated = true;
     private boolean stackTraceIncluded;
     private final Map<MethodReference, Generator> methodGenerators = new HashMap<>();
     private final Map<MethodReference, Injector> methodInjectors = new HashMap<>();
@@ -124,8 +127,11 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
     private final Set<MethodReference> asyncMethods = new HashSet<>();
     private final Set<MethodReference> asyncFamilyMethods = new HashSet<>();
     private List<VirtualMethodContributor> customVirtualMethods = new ArrayList<>();
-    private int topLevelNameLimit = 10000;
+    private int topLevelNameLimit = 500000;
     private AstDependencyExtractor dependencyExtractor = new AstDependencyExtractor();
+    private boolean strict;
+    private BoundCheckInsertion boundCheckInsertion = new BoundCheckInsertion();
+    private NullCheckInsertion nullCheckInsertion = new NullCheckInsertion(NullCheckFilter.EMPTY);
 
     @Override
     public List<ClassHolderTransformer> getTransformers() {
@@ -168,23 +174,12 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
     }
 
     /**
-     * Reports whether this TeaVM instance uses obfuscation when generating the JavaScript code.
-     *
-     * @see #setMinifying(boolean)
-     * @return whether TeaVM produces obfuscated code.
-     */
-    public boolean isMinifying() {
-        return minifying;
-    }
-
-    /**
      * Specifies whether this TeaVM instance uses obfuscation when generating the JavaScript code.
      *
-     * @see #isMinifying()
-     * @param minifying whether TeaVM should obfuscate code.
+     * @param obfuscated whether TeaVM should obfuscate code.
      */
-    public void setMinifying(boolean minifying) {
-        this.minifying = minifying;
+    public void setObfuscated(boolean obfuscated) {
+        this.obfuscated = obfuscated;
     }
 
     public MethodNodeCache getAstCache() {
@@ -205,6 +200,10 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
 
     public void setTopLevelNameLimit(int topLevelNameLimit) {
         this.topLevelNameLimit = topLevelNameLimit;
+    }
+
+    public void setStrict(boolean strict) {
+        this.strict = strict;
     }
 
     @Override
@@ -274,9 +273,30 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
         exceptionCons.getVariable(1).propagate(stringType);
         exceptionCons.use();
 
+        if (strict) {
+            exceptionCons = dependencyAnalyzer.linkMethod(new MethodReference(
+                    ArrayIndexOutOfBoundsException.class, "<init>", void.class));
+            exceptionCons.getVariable(0).propagate(dependencyAnalyzer.getType(
+                    ArrayIndexOutOfBoundsException.class.getName()));
+            exceptionCons.use();
+
+            exceptionCons = dependencyAnalyzer.linkMethod(new MethodReference(
+                    NullPointerException.class, "<init>", void.class));
+            exceptionCons.getVariable(0).propagate(dependencyAnalyzer.getType(NullPointerException.class.getName()));
+            exceptionCons.use();
+
+            exceptionCons = dependencyAnalyzer.linkMethod(new MethodReference(
+                    ClassCastException.class, "<init>", void.class));
+            exceptionCons.getVariable(0).propagate(dependencyAnalyzer.getType(ClassCastException.class.getName()));
+            exceptionCons.use();
+        }
+
         if (stackTraceIncluded) {
             includeStackTraceMethods(dependencyAnalyzer);
         }
+
+        dependencyAnalyzer.linkMethod(new MethodReference(Throwable.class, "getMessage", String.class)).use();
+        dependencyAnalyzer.linkMethod(new MethodReference(Throwable.class, "getCause", Throwable.class)).use();
 
         dependencyAnalyzer.addDependencyListener(new AbstractDependencyListener() {
             @Override
@@ -323,7 +343,17 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
     }
 
     @Override
+    public void beforeInlining(Program program, MethodReader method) {
+        if (strict) {
+            nullCheckInsertion.transformProgram(program, method.getReference());
+        }
+    }
+
+    @Override
     public void beforeOptimizations(Program program, MethodReader method) {
+        if (strict) {
+            boundCheckInsertion.transformProgram(program, method.getReference());
+        }
     }
 
     @Override
@@ -336,12 +366,12 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
             return;
         }
 
-        AliasProvider aliasProvider = minifying
+        AliasProvider aliasProvider = obfuscated
                 ? new MinifyingAliasProvider(topLevelNameLimit)
                 : new DefaultAliasProvider(topLevelNameLimit);
         DefaultNamingStrategy naming = new DefaultNamingStrategy(aliasProvider, controller.getUnprocessedClassSource());
         SourceWriterBuilder builder = new SourceWriterBuilder(naming);
-        builder.setMinified(minifying);
+        builder.setMinified(obfuscated);
         SourceWriter sourceWriter = builder.build(writer);
 
         DebugInformationEmitter debugEmitterToUse = debugEmitter;
@@ -354,13 +384,13 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
                 controller.getUnprocessedClassSource(), classes,
                 controller.getClassLoader(), controller.getServices(), controller.getProperties(), naming,
                 controller.getDependencyInfo(), m -> isVirtual(virtualMethodContributorContext, m),
-                controller.getClassInitializerInfo());
-        renderingContext.setMinifying(minifying);
+                controller.getClassInitializerInfo(), strict);
+        renderingContext.setMinifying(obfuscated);
         Renderer renderer = new Renderer(sourceWriter, asyncMethods, asyncFamilyMethods,
                 controller.getDiagnostics(), renderingContext);
         RuntimeRenderer runtimeRenderer = new RuntimeRenderer(classes, sourceWriter);
         renderer.setProperties(controller.getProperties());
-        renderer.setMinifying(minifying);
+        renderer.setMinifying(obfuscated);
         renderer.setProgressConsumer(controller::reportProgress);
         if (debugEmitter != null) {
             for (PreparedClass preparedClass : clsNodes) {
@@ -401,6 +431,7 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
 
             if (renderer.isLongLibraryUsed()) {
                 runtimeRenderer.renderHandWrittenRuntime("long.js");
+                renderer.renderLongRuntimeAliases();
             }
             if (renderer.isThreadLibraryUsed()) {
                 runtimeRenderer.renderHandWrittenRuntime("thread.js");
@@ -410,10 +441,12 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
 
             for (Map.Entry<? extends String, ? extends TeaVMEntryPoint> entry
                     : controller.getEntryPoints().entrySet()) {
-                sourceWriter.append("").append(entry.getKey()).ws().append("=").ws();
+                sourceWriter.append(entry.getKey()).ws().append("=").ws();
                 MethodReference ref = entry.getValue().getMethod();
                 sourceWriter.append("$rt_mainStarter(").appendMethodBody(ref);
                 sourceWriter.append(");").newLine();
+                sourceWriter.append(entry.getKey()).append(".").append("javaException").ws().append("=").ws()
+                        .append("$rt_javaException;").newLine();
             }
 
             for (RendererListener listener : rendererListeners) {
@@ -434,11 +467,11 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
         for (String key : controller.getEntryPoints().keySet()) {
             writer.append("var ").append(key).append(";").softNewLine();
         }
-        writer.append("(function()").ws().append("{").newLine();
+        writer.append("(function($rt_globals)").ws().append("{").newLine();
     }
 
     private void printWrapperEnd(SourceWriter writer) throws IOException {
-        writer.append("})();").newLine();
+        writer.append("})(this);").newLine();
     }
 
     private void printStats(Renderer renderer, int totalSize) {
@@ -471,14 +504,14 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
 
     private List<PreparedClass> modelToAst(ListableClassHolderSource classes) {
         AsyncMethodFinder asyncFinder = new AsyncMethodFinder(controller.getDependencyInfo().getCallGraph(),
-                controller.getDiagnostics());
+                controller.getDependencyInfo());
         asyncFinder.find(classes);
         asyncMethods.addAll(asyncFinder.getAsyncMethods());
         asyncFamilyMethods.addAll(asyncFinder.getAsyncFamilyMethods());
         Set<MethodReference> splitMethods = new HashSet<>(asyncMethods);
         splitMethods.addAll(asyncFamilyMethods);
 
-        Decompiler decompiler = new Decompiler(classes, splitMethods, controller.isFriendlyToDebugger(), false);
+        Decompiler decompiler = new Decompiler(classes, splitMethods, controller.isFriendlyToDebugger());
 
         List<PreparedClass> classNodes = new ArrayList<>();
         for (String className : getClassOrdering(classes)) {
@@ -725,7 +758,7 @@ public class JavaScriptTarget implements TeaVMTarget, TeaVMJavaScriptHost {
     }
 
     private static SourceLocation map(TextLocation location) {
-        if (location == null) {
+        if (location == null || location.isEmpty()) {
             return null;
         }
         return new SourceLocation(location.getFileName(), location.getLine());

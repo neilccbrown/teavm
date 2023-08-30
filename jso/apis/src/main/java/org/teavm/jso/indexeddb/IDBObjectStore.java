@@ -36,14 +36,16 @@ public abstract class IDBObjectStore implements JSObject, IDBCursorSource {
         }
     }
 
-    @JSBody(script = "return this;")
-    private native String[] unwrapStringArray(JSObject obj);
+    @JSBody(params = "obj", script = "return obj;")
+    private static native String[] unwrapStringArray(JSObject obj);
 
     @JSProperty
     public abstract String[] getIndexNames();
 
     @JSProperty
     public abstract boolean isAutoIncrement();
+
+    public abstract IDBGetRequest getAllKeys();
 
     public abstract IDBRequest put(JSObject value, JSObject key);
 

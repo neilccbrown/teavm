@@ -29,6 +29,7 @@ import org.objectweb.asm.commons.JSRInlinerAdapter;
 import org.objectweb.asm.tree.AnnotationNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldNode;
+import org.objectweb.asm.tree.InnerClassNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.teavm.common.Graph;
 import org.teavm.common.GraphUtils;
@@ -56,6 +57,7 @@ import org.teavm.model.Variable;
 import org.teavm.model.optimization.UnreachableBasicBlockEliminator;
 import org.teavm.model.util.DefinitionExtractor;
 import org.teavm.model.util.PhiUpdater;
+import org.teavm.model.util.ProgramNodeSplittingBackend;
 import org.teavm.model.util.ProgramUtils;
 
 public class Parser {
@@ -69,8 +71,8 @@ public class Parser {
     }
 
     public MethodHolder parseMethod(MethodNode node, String fileName) {
-        MethodNode nodeWithoutJsr = new MethodNode(Opcodes.ASM7, node.access, node.name, node.desc, node.signature,
-                node.exceptions.toArray(new String[0]));
+        MethodNode nodeWithoutJsr = new MethodNode(AsmUtil.API_VERSION, node.access, node.name, node.desc,
+                node.signature, node.exceptions.toArray(new String[0]));
         JSRInlinerAdapter adapter = new JSRInlinerAdapter(nodeWithoutJsr, node.access, node.name, node.desc,
                 node.signature, node.exceptions.toArray(new String[0]));
         node.accept(adapter);
@@ -78,23 +80,44 @@ public class Parser {
         ValueType[] signature = MethodDescriptor.parseSignature(node.desc);
         MethodHolder method = new MethodHolder(referenceCache.getCached(new MethodDescriptor(node.name, signature)));
         parseModifiers(node.access, method, DECL_METHOD);
-
-        ProgramParser programParser = new ProgramParser(referenceCache);
-        programParser.setFileName(fileName);
-        Program program = programParser.parse(node);
-        new UnreachableBasicBlockEliminator().optimize(program);
-        PhiUpdater phiUpdater = new PhiUpdater();
-        Variable[] argumentMapping = applySignature(program, method.getParameterTypes());
-        phiUpdater.updatePhis(program, argumentMapping);
-        method.setProgram(program);
-        applyDebugNames(program, phiUpdater, programParser, argumentMapping);
-
         parseAnnotations(method.getAnnotations(), node.visibleAnnotations, node.invisibleAnnotations);
-        applyDebugNames(program, phiUpdater, programParser,
-                applySignature(program, method.getDescriptor().getParameterTypes()));
-        while (program.variableCount() <= method.parameterCount()) {
-            program.createVariable();
+
+        if (node.instructions.size() > 0) {
+            ProgramParser programParser = new ProgramParser(referenceCache);
+            programParser.setFileName(fileName);
+            Program program = programParser.parse(node);
+            new UnreachableBasicBlockEliminator().optimize(program);
+
+            Graph cfg = ProgramUtils.buildControlFlowGraph(program);
+            if (GraphUtils.isIrreducible(cfg)) {
+                ProgramNodeSplittingBackend be = new ProgramNodeSplittingBackend(program);
+                int[] weights = new int[program.basicBlockCount()];
+                for (int i = 0; i < weights.length; ++i) {
+                    int count = 0;
+                    Instruction insn = program.basicBlockAt(i).getFirstInstruction();
+                    while (insn != null) {
+                        count++;
+                        insn = insn.getNext();
+                    }
+                    weights[i] = count;
+                }
+                GraphUtils.splitIrreducibleGraph(cfg, weights, be);
+            }
+
+            PhiUpdater phiUpdater = new PhiUpdater();
+            Variable[] argumentMapping = applySignature(program, method.getParameterTypes());
+            phiUpdater.updatePhis(program, argumentMapping);
+            method.setProgram(program);
+            applyDebugNames(program, phiUpdater, programParser, argumentMapping);
+
+            applyDebugNames(program, phiUpdater, programParser,
+                    applySignature(program, method.getDescriptor().getParameterTypes()));
+
+            while (program.variableCount() <= method.parameterCount()) {
+                program.createVariable();
+            }
         }
+
         if (node.annotationDefault != null) {
             method.setAnnotationDefault(parseAnnotationValue(node.annotationDefault));
         }
@@ -302,14 +325,24 @@ public class Parser {
             cls.addMethod(method);
             method.updateReference(referenceCache);
         }
+
         if (node.outerClass != null) {
             cls.setOwnerName(node.outerClass.replace('/', '.'));
-        } else {
-            int lastIndex = node.name.lastIndexOf('$');
-            if (lastIndex != -1) {
-                cls.setOwnerName(node.name.substring(0, lastIndex).replace('/', '.'));
+        }
+
+        if (node.innerClasses != null && !node.innerClasses.isEmpty()) {
+            for (InnerClassNode innerClassNode : node.innerClasses) {
+                if (node.name.equals(innerClassNode.name)) {
+                    if (innerClassNode.outerName != null) {
+                        cls.setDeclaringClassName(innerClassNode.outerName.replace('/', '.'));
+                        cls.setOwnerName(cls.getDeclaringClassName());
+                    }
+                    cls.setSimpleName(innerClassNode.innerName);
+                    break;
+                }
             }
         }
+
         parseAnnotations(cls.getAnnotations(), node.visibleAnnotations, node.invisibleAnnotations);
         return cls;
     }
@@ -472,6 +505,9 @@ public class Parser {
                 member.getModifiers().add(ElementModifier.VOLATILE);
             }
         }
+        if ((access & Opcodes.ACC_RECORD) != 0) {
+            member.getModifiers().add(ElementModifier.RECORD);
+        }
     }
 
     private void parseAnnotations(AnnotationContainer annotations, List<AnnotationNode> visibleAnnotations,
@@ -538,6 +574,8 @@ public class Parser {
             return new AnnotationValue((String) value);
         } else if (value instanceof Boolean) {
             return new AnnotationValue((Boolean) value);
+        } else if (value instanceof Character) {
+            return new AnnotationValue((Character) value);
         } else if (value instanceof Byte) {
             return new AnnotationValue((Byte) value);
         } else if (value instanceof Short) {

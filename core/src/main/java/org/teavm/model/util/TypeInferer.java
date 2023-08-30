@@ -260,7 +260,7 @@ public class TypeInferer {
         @Override
         public void createArray(VariableReader receiver, ValueType itemType,
                 List<? extends VariableReader> dimensions) {
-            types[receiver.getIndex()] = convert(ValueType.arrayOf(itemType));
+            types[receiver.getIndex()] = convert(itemType);
         }
 
         @Override
@@ -320,6 +320,11 @@ public class TypeInferer {
 
         @Override
         public void arrayLength(VariableReader receiver, VariableReader array) {
+            types[receiver.getIndex()] = new InferenceType(InferenceKind.INT, 0);
+        }
+
+        @Override
+        public void boundCheck(VariableReader receiver, VariableReader index, VariableReader array, boolean lower) {
             types[receiver.getIndex()] = new InferenceType(InferenceKind.INT, 0);
         }
     };

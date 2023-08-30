@@ -22,6 +22,7 @@ import static org.teavm.dependency.AbstractInstructionAnalyzer.MONITOR_EXIT_SYNC
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import org.teavm.model.AccessLevel;
 import org.teavm.model.BasicBlockReader;
 import org.teavm.model.CallLocation;
 import org.teavm.model.ClassHierarchy;
@@ -31,6 +32,7 @@ import org.teavm.model.ElementModifier;
 import org.teavm.model.IncomingReader;
 import org.teavm.model.MethodDescriptor;
 import org.teavm.model.MethodHolder;
+import org.teavm.model.MethodReader;
 import org.teavm.model.MethodReference;
 import org.teavm.model.PhiReader;
 import org.teavm.model.Program;
@@ -220,6 +222,7 @@ class DependencyGraphBuilder {
 
         @Override
         public void cast(VariableReader receiver, VariableReader value, ValueType targetType) {
+            super.cast(receiver, value, targetType);
             DependencyNode valueNode = nodes[value.getIndex()];
             DependencyNode receiverNode = nodes[receiver.getIndex()];
             ClassReaderSource classSource = dependencyAnalyzer.getClassSource();
@@ -253,6 +256,7 @@ class DependencyGraphBuilder {
                 valueNode.connect(receiverNode);
             }
         }
+
         @Override
         public void exit(VariableReader valueToReturn) {
             if (valueToReturn != null) {
@@ -287,7 +291,9 @@ class DependencyGraphBuilder {
             }
             MethodDependency cloneDep = getAnalyzer().linkMethod(CLONE_METHOD);
             cloneDep.addLocation(getCallLocation());
-            arrayNode.connect(cloneDep.getVariable(0));
+            if (arrayNode != null) {
+                arrayNode.connect(cloneDep.getVariable(0));
+            }
             cloneDep.use();
         }
 
@@ -324,10 +330,10 @@ class DependencyGraphBuilder {
         @Override
         protected void invokeSpecial(VariableReader receiver, VariableReader instance, MethodReference method,
                 List<? extends VariableReader> arguments) {
-            if (method.getDescriptor().equals(GET_CLASS)) {
-                invokeGetClass(receiver, instance);
+            if (handleSpecialMethod(receiver, instance, method)) {
                 return;
             }
+
             CallLocation callLocation = getCallLocation();
             if (instance == null) {
                 dependencyAnalyzer.linkClass(method.getClassName()).initClass(callLocation);
@@ -364,8 +370,16 @@ class DependencyGraphBuilder {
         @Override
         protected void invokeVirtual(VariableReader receiver, VariableReader instance, MethodReference method,
                 List<? extends VariableReader> arguments) {
-            if (method.getDescriptor().equals(GET_CLASS)) {
-                invokeGetClass(receiver, instance);
+            ClassReader cls = dependencyAnalyzer.getClassSource().get(method.getClassName());
+            if (cls != null) {
+                MethodReader methodHolder = cls.getMethod(method.getDescriptor());
+                if (methodHolder != null && methodHolder.getLevel() == AccessLevel.PRIVATE) {
+                    invokeSpecial(receiver, instance, method, arguments);
+                    return;
+                }
+            }
+
+            if (handleSpecialMethod(receiver, instance, method)) {
                 return;
             }
 
@@ -374,7 +388,7 @@ class DependencyGraphBuilder {
                 actualArgs[i + 1] = nodes[arguments.get(i).getIndex()];
             }
             actualArgs[0] = getNode(instance);
-            DependencyConsumer listener = new VirtualCallConsumer(getNode(instance),
+            DependencyConsumer listener = new VirtualCallConsumer(
                     method.getClassName(), method.getDescriptor(), dependencyAnalyzer, actualArgs,
                     receiver != null ? getNode(receiver) : null, getCallLocation(),
                     currentExceptionConsumer);
@@ -383,6 +397,26 @@ class DependencyGraphBuilder {
             dependencyAnalyzer.getClassSource().overriddenMethods(method).forEach(methodImpl -> {
                 dependencyAnalyzer.linkMethod(methodImpl.getReference()).addLocation(getCallLocation());
             });
+        }
+
+        private boolean handleSpecialMethod(VariableReader receiver, VariableReader instance, MethodReference method) {
+            if (method.getDescriptor().equals(GET_CLASS)) {
+                invokeGetClass(receiver, instance);
+                return true;
+            } else if (method.getClassName().equals("java.lang.Class")) {
+                switch (method.getName()) {
+                    case "getComponentType":
+                        invokeGetComponentType(receiver, instance, method);
+                        return true;
+                    case "getSuperclass":
+                        invokeGetSuperclass(receiver, instance, method);
+                        return true;
+                    case "getInterfaces":
+                        invokeGetInterfaces(receiver, instance, method);
+                        return true;
+                }
+            }
+            return false;
         }
 
         private void invokeGetClass(VariableReader receiver, VariableReader instance) {
@@ -398,6 +432,76 @@ class DependencyGraphBuilder {
                 getNode(receiver).propagate(dependencyAnalyzer.getType("java.lang.Class"));
             }
             getClassDep.use();
+        }
+
+        private void invokeGetComponentType(VariableReader receiver, VariableReader instance,
+                MethodReference methodReference) {
+            MethodDependency methodDep = dependencyAnalyzer.linkMethod(methodReference);
+            methodDep.use();
+
+            DependencyNode instanceNode = getNode(instance);
+            DependencyNode receiverNode = getNode(receiver);
+            receiverNode.propagate(dependencyAnalyzer.classType);
+            instanceNode.getClassValueNode().addConsumer(t -> {
+                if (!t.getName().startsWith("[")) {
+                    return;
+                }
+                String typeName = t.getName().substring(1);
+                if (typeName.charAt(0) == 'L') {
+                    typeName = ((ValueType.Object) ValueType.parse(typeName)).getClassName();
+                }
+                receiverNode.getClassValueNode().propagate(dependencyAnalyzer.getType(typeName));
+
+                methodDep.getVariable(0).propagate(t);
+            });
+        }
+
+        private void invokeGetSuperclass(VariableReader receiver, VariableReader instance,
+                MethodReference methodReference) {
+            MethodDependency methodDep = dependencyAnalyzer.linkMethod(methodReference);
+            methodDep.use();
+
+            DependencyNode instanceNode = getNode(instance);
+            DependencyNode receiverNode = getNode(receiver);
+            receiverNode.propagate(dependencyAnalyzer.classType);
+            instanceNode.getClassValueNode().addConsumer(type -> {
+                String className = type.getName();
+                if (className.startsWith("[")) {
+                    return;
+                }
+
+                ClassReader cls = dependencyAnalyzer.getClassSource().get(className);
+                if (cls != null && cls.getParent() != null) {
+                    receiverNode.getClassValueNode().propagate(dependencyAnalyzer.getType(cls.getParent()));
+                }
+                methodDep.getVariable(0).propagate(type);
+            });
+        }
+
+        private void invokeGetInterfaces(VariableReader receiver, VariableReader instance,
+                MethodReference methodReference) {
+            MethodDependency methodDep = dependencyAnalyzer.linkMethod(methodReference);
+            methodDep.use();
+
+            DependencyNode instanceNode = getNode(instance);
+            DependencyNode receiverNode = getNode(receiver);
+            receiverNode.propagate(dependencyAnalyzer.getType("[java/lang/Class;"));
+            receiverNode.getArrayItem().propagate(dependencyAnalyzer.classType);
+            instanceNode.getArrayItem().getClassValueNode().addConsumer(type -> {
+                String className = type.getName();
+                if (className.startsWith("[")) {
+                    return;
+                }
+
+                ClassReader cls = dependencyAnalyzer.getClassSource().get(className);
+                if (cls != null) {
+                    for (String iface : cls.getInterfaces()) {
+                        receiverNode.getClassValueNode().propagate(dependencyAnalyzer.getType(iface));
+                    }
+                }
+
+                methodDep.getVariable(0).propagate(type);
+            });
         }
 
         @Override

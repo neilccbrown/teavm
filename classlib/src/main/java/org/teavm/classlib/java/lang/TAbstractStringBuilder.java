@@ -56,6 +56,10 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
         length = value.length();
     }
 
+    public TAbstractStringBuilder append(Object obj) {
+        return append(String.valueOf(obj));
+    }
+
     protected TAbstractStringBuilder append(String string) {
         return insert(length, string);
     }
@@ -229,7 +233,6 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
         int intPart = 1;
         int sz = 1; // Decimal point always included
         if (negative) {
-            negative = true;
             ++sz; // including '-' sign of mantissa
         }
 
@@ -246,7 +249,7 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
                 intPart = exp + 1;
                 digits = Math.max(digits, intPart + 1);
                 exp = 0;
-            } else if (exp < 0) {
+            } else {
                 mantissa /= Constants.intPowersOfTen[-exp];
                 digits -= exp;
                 exp = 0;
@@ -373,7 +376,7 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
                 intPart = exp + 1;
                 digits = Math.max(digits, intPart + 1);
                 exp = 0;
-            } else if (exp < 0) {
+            } else {
                 mantissa /= Constants.longPowersOfTen[-exp];
                 digits -= exp;
                 exp = 0;
@@ -671,7 +674,7 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
 
     public int indexOf(TString str, int fromIndex) {
         int sz = length - str.length();
-        outer: for (int i = fromIndex; i < sz; ++i) {
+        outer: for (int i = fromIndex; i <= sz; ++i) {
             for (int j = 0; j < str.length(); ++j) {
                 if (buffer[i + j] != str.charAt(j)) {
                     continue outer;

@@ -31,6 +31,7 @@ public class DefaultInliningStrategy implements InliningStrategy {
     private final int depthThreshold;
     private final int totalComplexityThreshold;
     private final boolean onceUsedOnly;
+    private int getComplexityDepth;
 
     public DefaultInliningStrategy(int complexityThreshold, int depthThreshold, int totalComplexityThreshold,
             boolean onceUsedOnly) {
@@ -52,7 +53,7 @@ public class DefaultInliningStrategy implements InliningStrategy {
         return new InliningStepImpl(complexityHolder);
     }
 
-    private static Complexity getComplexity(ProgramReader program, InliningContext context) {
+    private Complexity getComplexity(ProgramReader program, InliningContext context) {
         int complexity = 0;
         ComplexityCounter counter = new ComplexityCounter(context);
         for (int i = 0; i < program.basicBlockCount(); ++i) {
@@ -101,7 +102,7 @@ public class DefaultInliningStrategy implements InliningStrategy {
         int complexity;
     }
 
-    static class ComplexityCounter extends AbstractInstructionReader {
+    class ComplexityCounter extends AbstractInstructionReader {
         InliningContext context;
         int complexity;
         boolean callsToUsedOnceMethods;
@@ -116,29 +117,47 @@ public class DefaultInliningStrategy implements InliningStrategy {
         }
 
         @Override
+        public void assign(VariableReader receiver, VariableReader assignee) {
+            complexity--;
+        }
+
+        @Override
         public void invoke(VariableReader receiver, VariableReader instance, MethodReference method,
                 List<? extends VariableReader> arguments, InvocationType type) {
             if (type == InvocationType.SPECIAL && context != null && context.isUsedOnce(method)) {
-                callsToUsedOnceMethods = true;
+                ProgramReader program = context.getProgram(method);
+                if (!isTrivialCall(program)) {
+                    callsToUsedOnceMethods = true;
+                }
             }
+        }
+
+        private boolean isTrivialCall(ProgramReader program) {
+            if (program == null || getComplexityDepth > 10) {
+               return false;
+            }
+            getComplexityDepth++;
+            Complexity complexity = getComplexity(program, context);
+            getComplexityDepth--;
+            return complexity.score <= 1 && !complexity.callsToUsedOnceMethods;
         }
 
         @Override
         public void choose(VariableReader condition, List<? extends SwitchTableEntryReader> table,
                 BasicBlockReader defaultTarget) {
-            complexity += 3;
+            complexity += 2;
         }
 
         @Override
         public void jumpIf(BranchingCondition cond, VariableReader operand, BasicBlockReader consequent,
                 BasicBlockReader alternative) {
-            complexity += 2;
+            complexity += 1;
         }
 
         @Override
         public void jumpIf(BinaryBranchingCondition cond, VariableReader first, VariableReader second,
                 BasicBlockReader consequent, BasicBlockReader alternative) {
-            complexity += 2;
+            complexity += 1;
         }
 
         @Override
@@ -148,6 +167,11 @@ public class DefaultInliningStrategy implements InliningStrategy {
 
         @Override
         public void exit(VariableReader valueToReturn) {
+            complexity--;
+        }
+
+        @Override
+        public void raise(VariableReader exception) {
             complexity--;
         }
     }

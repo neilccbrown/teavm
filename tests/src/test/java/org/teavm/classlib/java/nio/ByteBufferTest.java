@@ -17,6 +17,7 @@ package org.teavm.classlib.java.nio;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.sameInstance;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 import java.nio.BufferOverflowException;
@@ -27,8 +28,10 @@ import java.nio.ReadOnlyBufferException;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.teavm.junit.TeaVMTestRunner;
+import org.teavm.junit.WholeClassCompilation;
 
 @RunWith(TeaVMTestRunner.class)
+@WholeClassCompilation
 public class ByteBufferTest {
     @Test
     public void allocatesDirect() {
@@ -149,6 +152,18 @@ public class ByteBufferTest {
         assertThat(buffer.get(15), is((byte) 24));
         buffer.put(16, (byte) 25);
         assertThat(slice.get(1), is((byte) 25));
+    }
+
+    @Test
+    public void sliceOfSlice() {
+        ByteBuffer buffer = ByteBuffer.allocate(100);
+        buffer.put(new byte[10]);
+        ByteBuffer slice1 = buffer.slice();
+        slice1.put(new byte[15]);
+        ByteBuffer slice2 = slice1.slice();
+
+        assertEquals(25, slice2.arrayOffset());
+        assertEquals(75, slice2.capacity());
     }
 
     @Test
@@ -335,18 +350,21 @@ public class ByteBufferTest {
         byte[] receiver = new byte[4];
         try {
             buffer.get(receiver, 0, 5);
+            fail("Error expected");
         } catch (IndexOutOfBoundsException e) {
             assertThat(receiver, is(new byte[4]));
             assertThat(buffer.position(), is(0));
         }
         try {
             buffer.get(receiver, -1, 3);
+            fail("Error expected");
         } catch (IndexOutOfBoundsException e) {
             assertThat(receiver, is(new byte[4]));
             assertThat(buffer.position(), is(0));
         }
         try {
             buffer.get(receiver, 6, 3);
+            fail("Error expected");
         } catch (IndexOutOfBoundsException e) {
             assertThat(receiver, is(new byte[4]));
             assertThat(buffer.position(), is(0));

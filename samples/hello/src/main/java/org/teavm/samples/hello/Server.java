@@ -15,25 +15,22 @@
  */
 package org.teavm.samples.hello;
 
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import javax.servlet.ServletException;
-import javax.servlet.annotation.WebServlet;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 
 @WebServlet("/hello")
 public class Server extends HttpServlet {
-    private static final long serialVersionUID = -5014505771271825585L;
-
     @Override
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         try {
             Thread.sleep(500);
         } catch (InterruptedException e) {
             return;
         }
-        String userAgent = req.getHeader("User-Agent");
+        var userAgent = req.getHeader("User-Agent");
         resp.getWriter().println("Hello, " + userAgent);
     }
 }

@@ -16,7 +16,6 @@
 package org.teavm.classlib.impl.unicode;
 
 import java.util.Arrays;
-
 import org.teavm.classlib.impl.Base46;
 import org.teavm.classlib.impl.CharFlow;
 
@@ -44,21 +43,85 @@ public final class UnicodeHelper {
         }
     }
 
-    public static String encodeIntByte(int[] data) {
+    public static String encodeIntPairsDiff(int[] data) {
         StringBuilder sb = new StringBuilder();
-        Base46.encode(sb, data.length);
-        for (int i = 0; i < data.length; i++) {
-            Base46.encode(sb, data[i]);
+        Base46.encodeUnsigned(sb, data.length / 2);
+        int lastKey = 0;
+        int lastValue = 0;
+        for (int i = 0; i < data.length; i += 2) {
+            int key = data[i];
+            int value = data[i + 1];
+            Base46.encode(sb, key - lastKey);
+            Base46.encode(sb, value - lastValue);
+            lastKey = key;
+            lastValue = value;
         }
         return sb.toString();
     }
 
-    public static int[] decodeIntByte(String text) {
+    public static int[] decodeIntPairsDiff(String text) {
         CharFlow flow = new CharFlow(text.toCharArray());
-        int sz = Base46.decode(flow);
-        int[] data = new int[sz];
+        int sz = Base46.decodeUnsigned(flow);
+        int[] data = new int[sz * 2];
+        int j = 0;
+        int lastKey = 0;
+        int lastValue = 0;
         for (int i = 0; i < sz; i++) {
-            data[i] = Base46.decode(flow);
+            lastKey += Base46.decode(flow);
+            lastValue += Base46.decode(flow);
+            data[j++] = lastKey;
+            data[j++] = lastValue;
+        }
+        return data;
+    }
+
+    public static String encodeIntDiff(int[] data) {
+        StringBuilder sb = new StringBuilder();
+        Base46.encodeUnsigned(sb, data.length);
+        int last = 0;
+        for (int i = 0; i < data.length; i++) {
+            int v = data[i];
+            Base46.encode(sb, v - last);
+            last = v;
+        }
+        return sb.toString();
+    }
+
+    public static String encodeCaseMapping(int[] data) {
+        StringBuilder sb = new StringBuilder();
+        int sz = data.length / 2;
+        Base46.encodeUnsigned(sb, sz);
+        int last = 0;
+        for (int i = 0; i < sz; i++) {
+            int v = data[i * 2];
+            Base46.encodeUnsigned(sb, v - last);
+            last = v;
+            Base46.encode(sb, data[i * 2 + 1]);
+        }
+        return sb.toString();
+    }
+
+    public static int[] decodeIntDiff(String text) {
+        CharFlow flow = new CharFlow(text.toCharArray());
+        int sz = Base46.decodeUnsigned(flow);
+        int[] data = new int[sz];
+        int last = 0;
+        for (int i = 0; i < sz; i++) {
+            last += Base46.decode(flow);
+            data[i] = last;
+        }
+        return data;
+    }
+
+    public static int[] decodeCaseMapping(String text) {
+        CharFlow flow = new CharFlow(text.toCharArray());
+        int sz = Base46.decodeUnsigned(flow);
+        int[] data = new int[sz * 2];
+        int last = 0;
+        for (int i = 0; i < sz; i++) {
+            last += Base46.decodeUnsigned(flow);
+            data[i * 2] = last;
+            data[i * 2 + 1] = Base46.decode(flow);
         }
         return data;
     }
@@ -89,7 +152,7 @@ public final class UnicodeHelper {
             byte b = bytes[i];
             if (i < bytes.length - 1 && b == bytes[i + 1]) {
                 int count = 0;
-                while (count < 16384 && i < bytes.length && bytes[i + count] == b) {
+                while (count < 16384 && bytes[i + count] == b) {
                     ++count;
                 }
                 i += count;

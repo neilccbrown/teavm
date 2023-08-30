@@ -23,6 +23,7 @@ import static org.junit.Assert.assertTrue;
 import java.lang.annotation.Annotation;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.Set;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.teavm.junit.TeaVMTestRunner;
@@ -126,8 +127,36 @@ public class ClassTest {
     }
 
     @Test
-    public void declaringClassFound() {
-        assertEquals(ClassTest.class, new A().getClass().getDeclaringClass());
+    public void classProperties() {
+        class B {
+        }
+
+        @SuppressWarnings("Convert2Lambda")
+        Runnable r = new Runnable() {
+            @Override
+            public void run() {
+            }
+        };
+
+        String testName = "org.teavm.classlib.java.lang.ClassTest";
+
+        testClassProperties(getClass(), "ClassTest", testName, null, null);
+        testClassProperties(new ClassTest[0].getClass(), "ClassTest[]", testName + "[]", null, null);
+        testClassProperties(int.class, "int", "int", null, null);
+        testClassProperties(new int[0].getClass(), "int[]", "int[]", null, null);
+        testClassProperties(new A().getClass(), "A", testName + ".A", ClassTest.class, ClassTest.class);
+        testClassProperties(new A[0].getClass(), "A[]", testName + ".A[]", null, null);
+        testClassProperties(new B().getClass(), "B", null, null, ClassTest.class);
+        testClassProperties(new B[0].getClass(), "B[]", null, null, null);
+        testClassProperties(r.getClass(), "", null, null, ClassTest.class);
+    }
+
+    private void testClassProperties(Class<?> cls, String expectedSimpleName, String expectedCanonicalName,
+            Class<?> expectedDeclaringClass, Class<?> expectedEnclosingClass) {
+        assertEquals(expectedSimpleName, cls.getSimpleName());
+        assertEquals(expectedCanonicalName, cls.getCanonicalName());
+        assertEquals(expectedDeclaringClass, cls.getDeclaringClass());
+        assertEquals(expectedEnclosingClass, cls.getEnclosingClass());
     }
 
     @Test
@@ -163,6 +192,26 @@ public class ClassTest {
         assertEquals("foo", annot.l());
         assertArrayEquals(new String[] { "bar" }, annot.m());
         assertEquals(Integer.class, annot.n());
+    }
+
+    @Test
+    public void getInterfaces() {
+        assertEquals(0, SuperclassWithoutInterfaces.class.getInterfaces().length);
+        assertEquals(Set.of(TestInterface1.class, TestInterface2.class),
+                Set.of(ClassWithInterfaces.class.getInterfaces()));
+    }
+
+    private static class SuperclassWithoutInterfaces {
+    }
+
+    private static class ClassWithInterfaces extends SuperclassWithoutInterfaces
+            implements TestInterface1, TestInterface2 {
+    }
+
+    private interface TestInterface1 {
+    }
+
+    private interface TestInterface2 {
     }
 
     @TestAnnot

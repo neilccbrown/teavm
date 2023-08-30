@@ -17,6 +17,7 @@ package org.teavm.dependency;
 
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import java.io.ByteArrayOutputStream;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -79,7 +80,9 @@ public class ClassValueTest {
     }
 
     private DependencyInfo runTest(String methodName) {
-        TeaVM vm = new TeaVMBuilder(new JavaScriptTarget()).build();
+        JavaScriptTarget target = new JavaScriptTarget();
+        target.setStrict(true);
+        TeaVM vm = new TeaVMBuilder(target).build();
         vm.add(new DependencyTestPatcher(getClass().getName(), methodName));
         vm.installPlugins();
         vm.entryPoint(getClass().getName());

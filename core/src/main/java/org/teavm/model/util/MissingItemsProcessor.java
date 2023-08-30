@@ -56,7 +56,10 @@ public class MissingItemsProcessor {
     public void processClass(ClassHolder cls) {
         for (MethodHolder method : cls.getMethods()) {
             if (reachableMethods.contains(method.getReference()) && method.getProgram() != null) {
-                processMethod(method);
+                MethodDependencyInfo methodDep = dependencyInfo.getMethod(method.getReference());
+                if (methodDep != null && methodDep.isUsed()) {
+                    processMethod(method);
+                }
             }
         }
     }
@@ -141,7 +144,7 @@ public class MissingItemsProcessor {
 
     private boolean checkClass(TextLocation location, String className) {
         if (!reachableClasses.contains(className)) {
-            return false;
+            return true;
         }
 
         if (!dependencyInfo.getClass(className).isMissing()) {
@@ -207,16 +210,12 @@ public class MissingItemsProcessor {
         if (!checkClass(location, method.getClassName())) {
             return false;
         }
-        if (!reachableMethods.contains(method)) {
-            return true;
-        }
 
         if (hierarchy.resolve(method) != null) {
             return true;
         }
 
-        diagnostics.error(new CallLocation(methodRef, location), "Method {{m0}} was not found",
-                method);
+        diagnostics.error(new CallLocation(methodRef, location), "Method {{m0}} was not found", method);
         emitExceptionThrow(location, NoSuchMethodError.class.getName(), "Method not found: " + method);
         return true;
     }

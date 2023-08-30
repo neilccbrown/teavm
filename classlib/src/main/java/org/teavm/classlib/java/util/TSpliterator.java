@@ -57,7 +57,8 @@ public interface TSpliterator<T> {
         throw new IllegalStateException();
     }
 
-    interface OfPrimitive<T, C, S extends OfPrimitive<T, C, S>> {
+    interface OfPrimitive<T, C, S extends OfPrimitive<T, C, S>> extends TSpliterator<T> {
+        @Override
         S trySplit();
 
         boolean tryAdvance(C action);
@@ -70,11 +71,27 @@ public interface TSpliterator<T> {
     }
 
     interface OfInt extends OfPrimitive<Integer, IntConsumer, OfInt> {
+        @Override
+        boolean tryAdvance(IntConsumer consumer);
+
+        @Override
         default boolean tryAdvance(Consumer<? super Integer> action) {
-            return tryAdvance((IntConsumer) action::accept);
+            if (action instanceof IntConsumer) {
+                return tryAdvance((IntConsumer) action);
+            } else {
+                return tryAdvance((IntConsumer) action::accept);
+            }
         }
 
+        @Override
         default void forEachRemaining(Consumer<? super Integer> action) {
+            while (tryAdvance(action)) {
+                // continue
+            }
+        }
+
+        @Override
+        default void forEachRemaining(IntConsumer action) {
             while (tryAdvance(action)) {
                 // continue
             }
@@ -82,11 +99,23 @@ public interface TSpliterator<T> {
     }
 
     interface OfLong extends OfPrimitive<Long, LongConsumer, OfLong> {
+        @Override
+        boolean tryAdvance(LongConsumer consumer);
+
+        @Override
         default boolean tryAdvance(Consumer<? super Long> action) {
             return tryAdvance((LongConsumer) action::accept);
         }
 
+        @Override
         default void forEachRemaining(Consumer<? super Long> action) {
+            while (tryAdvance(action)) {
+                // continue
+            }
+        }
+
+        @Override
+        default void forEachRemaining(LongConsumer action) {
             while (tryAdvance(action)) {
                 // continue
             }
@@ -94,11 +123,23 @@ public interface TSpliterator<T> {
     }
 
     interface OfDouble extends OfPrimitive<Double, DoubleConsumer, OfDouble> {
+        @Override
+        boolean tryAdvance(DoubleConsumer consumer);
+
+        @Override
         default boolean tryAdvance(Consumer<? super Double> action) {
             return tryAdvance((DoubleConsumer) action::accept);
         }
 
+        @Override
         default void forEachRemaining(Consumer<? super Double> action) {
+            while (tryAdvance(action)) {
+                // continue
+            }
+        }
+
+        @Override
+        default void forEachRemaining(DoubleConsumer action) {
             while (tryAdvance(action)) {
                 // continue
             }

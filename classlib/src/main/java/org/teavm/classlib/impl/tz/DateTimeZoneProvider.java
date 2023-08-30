@@ -23,10 +23,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
-import org.teavm.backend.javascript.spi.GeneratedBy;
 import org.teavm.classlib.impl.Base46;
 import org.teavm.classlib.impl.CharFlow;
 import org.teavm.interop.Import;
+import org.teavm.interop.Unmanaged;
 import org.teavm.jso.JSBody;
 import org.teavm.platform.metadata.ResourceMap;
 
@@ -72,14 +72,7 @@ public final class DateTimeZoneProvider {
         return ids.toArray(new String[ids.size()]);
     }
 
-    @GeneratedBy(DateTimeZoneProviderGenerator.class)
-    private static native boolean timeZoneDetectionEnabled();
-
     public static DateTimeZone detectTimezone() {
-        if (!timeZoneDetectionEnabled()) {
-            return null;
-        }
-
         List<Score> zones = new ArrayList<>();
         long time = System.currentTimeMillis();
         int offset = -getNativeOffset(System.currentTimeMillis());
@@ -190,6 +183,7 @@ public final class DateTimeZoneProvider {
 
     @JSBody(params = "instant", script = "return new Date(instant).getTimezoneOffset();")
     @Import(module = "teavm", name = "getNativeOffset")
+    @Unmanaged
     private static native int getNativeOffset(double instant);
 
     private static native ResourceMap<ResourceMap<TimeZoneResource>> getResource();

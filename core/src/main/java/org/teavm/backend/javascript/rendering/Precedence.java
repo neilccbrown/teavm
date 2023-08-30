@@ -28,8 +28,10 @@ public enum Precedence {
     COMPARISON,
     BITWISE_SHIFT,
     ADDITION,
+    MODULO,
     MULTIPLICATION,
     UNARY,
+    NEW,
     FUNCTION_CALL,
     MEMBER_ACCESS,
     GROUPING;

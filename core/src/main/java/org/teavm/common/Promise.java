@@ -15,18 +15,20 @@
  */
 package org.teavm.common;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Queue;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
 public class Promise<T> {
+    private static ThreadLocal<Queue<Runnable>> processing = new ThreadLocal<>();
     public static final Promise<Void> VOID = Promise.of(null);
 
     private T value;
-    private Promise<T> promise;
     private Throwable error;
     private State state = State.PENDING;
     private List<Then<T>> thenList;
@@ -81,7 +83,6 @@ public class Promise<T> {
         boolean error;
 
         AllVoidFunction(int count) {
-            this.result = result;
             this.count = count;
         }
 
@@ -109,7 +110,6 @@ public class Promise<T> {
         boolean error;
 
         AllFunction(int count) {
-            this.result = result;
             this.count = count;
             list.addAll(Collections.nCopies(count, null));
         }
@@ -124,7 +124,7 @@ public class Promise<T> {
                 }
                 return null;
             };
-        };
+        }
 
         Function<Throwable, Void> catchF = e -> {
             if (!error) {
@@ -140,8 +140,8 @@ public class Promise<T> {
         if (state == State.PENDING || state == State.WAITING_PROMISE) {
             if (thenList == null) {
                 thenList = new ArrayList<>();
-                thenList.add(new Then<>(f, result, false));
             }
+            thenList.add(new Then<>(f, result, false));
         } else {
             passValue(f, result);
         }
@@ -160,8 +160,8 @@ public class Promise<T> {
         if (state == State.PENDING || state == State.WAITING_PROMISE) {
             if (thenList == null) {
                 thenList = new ArrayList<>();
-                thenList.add(new Then<>(f, result, true));
             }
+            thenList.add(new Then<>(f, result, true));
         } else if (state == State.COMPLETED) {
             passValueAsync(f, result);
         }
@@ -173,8 +173,8 @@ public class Promise<T> {
         if (state == State.PENDING || state == State.WAITING_PROMISE) {
             if (catchList == null) {
                 catchList = new ArrayList<>();
-                catchList.add(new Catch(f, result));
             }
+            catchList.add(new Catch(f, result));
         } else if (state == State.ERRORED) {
             passError(f, result);
         }
@@ -190,37 +190,50 @@ public class Promise<T> {
     }
 
     <S> void passValue(Function<? super T, S> f, Promise<? super S> target) {
-        if (state == State.COMPLETED) {
+        runAction(() -> {
+            if (state == State.COMPLETED) {
+                S next;
+                try {
+                    next = f.apply(value);
+                } catch (Throwable e) {
+                    target.completeWithError(e);
+                    return;
+                }
+                target.complete(next);
+            } else {
+                target.completeWithError(error);
+            }
+        });
+    }
+
+    <S> void passValueAsync(Function<T, Promise<S>> f, Promise<S> target) {
+        runAction(() -> {
+            if (state == State.COMPLETED) {
+                Promise<S> next;
+                try {
+                    next = f.apply(value);
+                } catch (Throwable e) {
+                    target.completeWithError(e);
+                    return;
+                }
+                target.completeAsync(next);
+            } else {
+                target.completeWithError(error);
+            }
+        });
+    }
+
+    <S> void passError(Function<Throwable, S> f, Promise<? super S> target) {
+        runAction(() -> {
             S next;
             try {
-                next = f.apply(value);
+                next = f.apply(error);
             } catch (Throwable e) {
                 target.completeWithError(e);
                 return;
             }
             target.complete(next);
-        } else {
-            target.completeWithError(error);
-        }
-    }
-
-    <S> void passValueAsync(Function<T, Promise<S>> f, Promise<S> target) {
-        if (state == State.COMPLETED) {
-            target.completeAsync(f.apply(value));
-        } else {
-            target.completeWithError(error);
-        }
-    }
-
-    <S> void passError(Function<Throwable, S> f, Promise<? super S> target) {
-        S next;
-        try {
-            next = f.apply(error);
-        } catch (Throwable e) {
-            target.completeWithError(e);
-            return;
-        }
-        target.complete(next);
+        });
     }
 
     void complete(T value) {
@@ -248,21 +261,23 @@ public class Promise<T> {
     }
 
     private void completeImpl(T value) {
-        state = State.COMPLETED;
-        this.value = value;
+        runAction(() -> {
+            state = State.COMPLETED;
+            this.value = value;
 
-        if (thenList != null) {
-            List<Then<T>> list = thenList;
-            thenList = null;
-            for (Then<T> then : list) {
-                if (then.promise) {
-                    passValueAsync((Function<T, Promise<Object>>) then.f, (Promise<Object>) then.target);
-                } else {
-                    passValue(then.f, (Promise<Object>) then.target);
+            if (thenList != null) {
+                var list = thenList;
+                thenList = null;
+                for (var then : list) {
+                    if (then.promise) {
+                        passValueAsync((Function<T, Promise<Object>>) then.f, (Promise<Object>) then.target);
+                    } else {
+                        passValue(then.f, (Promise<Object>) then.target);
+                    }
                 }
             }
-        }
-        catchList = null;
+            catchList = null;
+        });
     }
 
     void completeWithError(Throwable e) {
@@ -273,19 +288,47 @@ public class Promise<T> {
     }
 
     void completeWithErrorImpl(Throwable e) {
-        state = State.ERRORED;
-        this.error = e;
+        runAction(() -> {
+            state = State.ERRORED;
+            this.error = e;
 
-        if (catchList != null) {
-            List<Catch> list = catchList;
-            thenList = null;
-            for (Catch c : list) {
-                passError(c.f, (Promise<Object>) c.target);
+            if (catchList != null) {
+                List<Catch> list = catchList;
+                thenList = null;
+                for (Catch c : list) {
+                    passError(c.f, (Promise<Object>) c.target);
+                }
+            } else {
+                e.printStackTrace();
             }
+            thenList = null;
+        });
+    }
+
+    private void runAction(Runnable action) {
+        var queue = processing.get();
+        if (queue != null) {
+            queue.add(action);
         } else {
-            e.printStackTrace();
+            queue = new ArrayDeque<>();
+            queue.add(action);
+            processing.set(queue);
+            while (!queue.isEmpty()) {
+                queue.remove().run();
+            }
+            processing.remove();
         }
-        thenList = null;
+    }
+
+    public static void runNow(Runnable runnable) {
+        var queue = processing.get();
+        if (queue == null) {
+            runnable.run();
+        } else {
+            processing.remove();
+            runnable.run();
+            processing.set(queue);
+        }
     }
 
     enum State {

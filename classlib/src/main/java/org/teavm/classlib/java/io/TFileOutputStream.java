@@ -20,12 +20,12 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Objects;
-import org.teavm.classlib.fs.VirtualFile;
-import org.teavm.classlib.fs.VirtualFileAccessor;
+import org.teavm.runtime.fs.VirtualFile;
+import org.teavm.runtime.fs.VirtualFileAccessor;
 
 public class TFileOutputStream extends OutputStream {
+    private static final byte[] ONE_BYTE_BUFER = new byte[1];
     private VirtualFileAccessor accessor;
-    private int pos;
 
     public TFileOutputStream(TFile file) throws FileNotFoundException {
         this(file, false);
@@ -43,28 +43,22 @@ public class TFileOutputStream extends OutputStream {
         if (file.getName().isEmpty()) {
             throw new FileNotFoundException("Invalid file name");
         }
-        VirtualFile virtualFile = file.findVirtualFile();
-        if (virtualFile == null) {
-            VirtualFile parentVirtualFile = file.findParentFile();
-            if (parentVirtualFile != null && parentVirtualFile.isDirectory()) {
-                virtualFile = parentVirtualFile.createFile(file.getName());
+        VirtualFile parentVirtualFile = file.findParentFile();
+        if (parentVirtualFile != null && parentVirtualFile.isDirectory()) {
+            try {
+                parentVirtualFile.createFile(file.getName());
+            } catch (IOException e) {
+                throw new FileNotFoundException();
             }
         }
-        if (virtualFile == null || virtualFile.isDirectory()) {
-            throw new FileNotFoundException();
-        }
 
-        if (!virtualFile.canWrite()) {
-            throw new FileNotFoundException("File is read-only");
+        VirtualFile virtualFile = file.findVirtualFile();
+        if (virtualFile == null || !virtualFile.isFile()) {
+            throw new FileNotFoundException("Could not create file");
         }
-
-        accessor = virtualFile.createAccessor();
+        accessor = virtualFile.createAccessor(false, true, append);
         if (accessor == null) {
             throw new FileNotFoundException();
-        }
-
-        if (append) {
-            pos = accessor.size();
         }
     }
 
@@ -75,25 +69,29 @@ public class TFileOutputStream extends OutputStream {
             throw new IndexOutOfBoundsException();
         }
         ensureOpened();
-        accessor.write(pos, b, off, len);
-        pos += len;
+        accessor.write(b, off, len);
     }
 
     @Override
     public void flush() throws IOException {
+        ensureOpened();
+        accessor.flush();
     }
 
     @Override
     public void close() throws IOException {
+        if (accessor != null) {
+            accessor.close();
+        }
         accessor = null;
     }
 
     @Override
     public void write(int b) throws IOException {
         ensureOpened();
-        byte[] buffer = { (byte) b };
-        accessor.write(pos, buffer, 0, 1);
-        pos++;
+        byte[] buffer = ONE_BYTE_BUFER;
+        buffer[0] = (byte) b;
+        accessor.write(buffer, 0, 1);
     }
 
     private void ensureOpened() throws IOException {

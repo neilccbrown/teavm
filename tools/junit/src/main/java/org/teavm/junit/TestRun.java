@@ -20,21 +20,29 @@ import java.lang.reflect.Method;
 import org.junit.runner.Description;
 
 class TestRun {
+    private String name;
     private File baseDirectory;
     private Method method;
     private Description description;
     private String fileName;
     private RunKind kind;
     private TestRunCallback callback;
+    private String argument;
 
-    TestRun(File baseDirectory, Method method, Description description, String fileName, RunKind kind,
-            TestRunCallback callback) {
+    TestRun(String name, File baseDirectory, Method method, Description description, String fileName, RunKind kind,
+            String argument, TestRunCallback callback) {
+        this.name = name;
         this.baseDirectory = baseDirectory;
         this.method = method;
         this.description = description;
         this.fileName = fileName;
         this.kind = kind;
+        this.argument = argument;
         this.callback = callback;
+    }
+
+    public String getName() {
+        return name;
     }
 
     public File getBaseDirectory() {
@@ -55,6 +63,10 @@ class TestRun {
 
     public RunKind getKind() {
         return kind;
+    }
+
+    public String getArgument() {
+        return argument;
     }
 
     public TestRunCallback getCallback() {

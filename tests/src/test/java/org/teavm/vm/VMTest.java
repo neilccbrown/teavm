@@ -20,6 +20,8 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import java.util.Arrays;
+import java.util.List;
 import java.util.function.Supplier;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -38,6 +40,32 @@ public class VMTest {
         assertEquals(3, array[0].length);
         assertEquals(int[][].class, array.getClass());
         assertEquals(int[].class, array[0].getClass());
+    }
+
+    @Test
+    public void longMultiArrayCreated() {
+        long[][] array = new long[3][2];
+        assertEquals(3, array.length);
+        assertEquals(2, array[1].length);
+        assertEquals(2, array[2].length);
+
+        for (int i = 0; i < array.length; ++i) {
+            assertEquals(2, array[i].length);
+            for (int j = 0; j < array[i].length; ++j) {
+                assertEquals(0, array[i][j]);
+            }
+        }
+
+        for (int i = 0; i < array.length; ++i) {
+            Arrays.fill(array[i], 0x0123456789ABCDEFL);
+        }
+
+        for (int i = 0; i < array.length; ++i) {
+            assertEquals(2, array[i].length);
+            for (int j = 0; j < array[i].length; ++j) {
+                assertEquals(0x0123456789ABCDEFL, array[i][j]);
+            }
+        }
     }
 
     @Test
@@ -88,6 +116,7 @@ public class VMTest {
         int a = 23;
         try {
             a = Integer.parseInt("not a number");
+            fail("Exception not thrown");
         } catch (NumberFormatException e) {
             // do nothing
         }
@@ -116,19 +145,19 @@ public class VMTest {
     @Test
     public void catchFinally() {
         StringBuilder sb = new StringBuilder();
+        List<String> a = Arrays.asList("a", "b");
+        if (a.isEmpty()) {
+            return;
+        }
         try {
-            if (Integer.parseInt("invalid") > 0) {
-                sb.append("err1;");
-            } else {
-                sb.append("err2;");
+            for (String b : a) {
+                if (b.length() < 3) {
+                    sb.append(b);
+                }
             }
-            sb.append("err3");
-        } catch (NumberFormatException e) {
-            sb.append("catch;");
         } finally {
             sb.append("finally;");
         }
-        assertEquals("catch;finally;", sb.toString());
     }
 
     @Test
@@ -178,9 +207,19 @@ public class VMTest {
     public void stringConcat() {
         assertEquals("(23)", surroundWithParentheses(23));
         assertEquals("(42)", surroundWithParentheses(42));
+        assertEquals("(17)", surroundWithParentheses((byte) 17));
+        assertEquals("(19)", surroundWithParentheses((short) 19));
     }
 
     private String surroundWithParentheses(int value) {
+        return "(" + value + ")";
+    }
+
+    private String surroundWithParentheses(byte value) {
+        return "(" + value + ")";
+    }
+
+    private String surroundWithParentheses(short value) {
         return "(" + value + ")";
     }
 
@@ -195,7 +234,7 @@ public class VMTest {
             n += foo() * 5;
         } catch (RuntimeException e) {
             assertEquals(RuntimeException.class, e.getClass());
-            assertEquals(n, 22);
+            assertEquals(22, n);
         }
     }
 
@@ -310,6 +349,40 @@ public class VMTest {
         assertEquals(23, ReadingStateInClinit.state);
     }
 
+    @Test
+    public void implementInBaseMethodWithDefault() {
+        SubclassWithInheritedImplementation o = new SubclassWithInheritedImplementation();
+        assertEquals(1, o.x);
+        assertEquals(2, new SubclassWithInheritedDefaultImplementation().foo());
+    }
+
+    static class BaseClassWithImplementation {
+        public int foo() {
+            return 1;
+        }
+    }
+
+    interface BaseInterfaceWithDefault {
+        default int foo() {
+            return 2;
+        }
+    }
+
+    static class IntermediateClassInheritingImplementation extends BaseClassWithImplementation {
+    }
+
+    static class SubclassWithInheritedImplementation extends IntermediateClassInheritingImplementation
+            implements BaseInterfaceWithDefault {
+        int x;
+
+        SubclassWithInheritedImplementation() {
+            x = foo();
+        }
+    }
+
+    static class SubclassWithInheritedDefaultImplementation implements BaseInterfaceWithDefault {
+    }
+
     interface WithDefaultMethod {
         default String foo() {
             return "default";
@@ -386,14 +459,14 @@ public class VMTest {
 
         public synchronized void doWait() {
             new Thread(() -> {
-                synchronized (AsyncClinitClass.this) {
+                synchronized (this) {
                     notify();
                 }
             }).start();
 
             try {
                 Thread.sleep(1);
-                synchronized (AsyncClinitClass.this) {
+                synchronized (this) {
                     wait();
                 }
             } catch (InterruptedException ie) {
@@ -423,7 +496,7 @@ public class VMTest {
     }
 
     static class SuperClass {
-        static final Integer ONE = new Integer(1);
+        static final Integer ONE = Integer.valueOf(1);
 
         private Integer value;
 
@@ -444,8 +517,20 @@ public class VMTest {
 
     @Test
     public void indirectDefaultMethod() {
-        PathJoint o = new PathJoint();
-        assertEquals("SecondPath.foo", o.foo());
+        StringBuilder sb = new StringBuilder();
+        for (FirstPath o : new FirstPath[] { new PathJoint(), new FirstPathOptimizationPrevention() }) {
+            sb.append(o.foo()).append(";");
+        }
+        assertEquals("SecondPath.foo;FirstPath.foo;", sb.toString());
+    }
+
+    @Test
+    public void indirectDefaultMethodSubclass() {
+        StringBuilder sb = new StringBuilder();
+        for (FirstPath o : new FirstPath[] { new PathJointSubclass(), new FirstPathOptimizationPrevention() }) {
+            sb.append(o.foo()).append(";");
+        }
+        assertEquals("SecondPath.foo;FirstPath.foo;", sb.toString());
     }
 
     interface FirstPath {
@@ -462,6 +547,13 @@ public class VMTest {
     }
 
     class PathJoint implements FirstPath, SecondPath {
+    }
+
+    class PathJointSubclass extends PathJoint implements FirstPath {
+    }
+
+    class FirstPathOptimizationPrevention implements FirstPath {
+        // Used to ensure that the implementation of FirstPath.foo() is not optimized away by TeaVM.
     }
 
     @Test
@@ -511,6 +603,60 @@ public class VMTest {
         int[] array = { 1, 2, 3 };
         synchronized (array) {
             array.wait(1);
+        }
+    }
+
+    @Test
+    public void castMultiArray() {
+        Object o = new String[0][0];
+        assertEquals(0, ((String[][]) o).length);
+        o = new String[0][];
+        assertEquals(0, ((String[][]) o).length);
+        o = new int[0][0];
+        assertEquals(0, ((int[][]) o).length);
+        o = new int[0][];
+        assertEquals(0, ((int[][]) o).length);
+    }
+
+    @Test
+    public void precedence() {
+        float a = count(3);
+        float b = count(7);
+        float c = 5;
+        assertEquals(1, a * b % c, 0.1f);
+        assertEquals(6, a * (b % c), 0.1f);
+    }
+
+    private int count(int value) {
+        int result = 0;
+        for (int i = 0; i < value; ++i) {
+            result += 1;
+        }
+        return result;
+    }
+
+    @Test
+    public void virtualCallWithPrivateMethods() {
+        assertEquals("ap", callA(new B()));
+    }
+
+    private static String callA(A a) {
+        return a.a();
+    }
+
+    static class A {
+        String a() {
+            return "a" + p();
+        }
+
+        private String p() {
+            return "p";
+        }
+    }
+
+    static class B extends A {
+        private String p() {
+            return "q";
         }
     }
 }

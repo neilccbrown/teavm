@@ -89,6 +89,9 @@ public class ClassRefsRenamer extends AbstractInstructionVisitor {
         if (cls.getOwnerName() != null) {
             renamedCls.setOwnerName(classNameMapper.apply(cls.getOwnerName()));
         }
+        if (cls.getDeclaringClassName() != null) {
+            renamedCls.setDeclaringClassName(classNameMapper.apply(cls.getDeclaringClassName()));
+        }
         rename(cls.getAnnotations(), renamedCls.getAnnotations());
         for (String iface : cls.getInterfaces()) {
             String mappedIfaceName = classNameMapper.apply(iface);
@@ -126,7 +129,13 @@ public class ClassRefsRenamer extends AbstractInstructionVisitor {
         renamedMethod.setLevel(method.getLevel());
         renamedMethod.setProgram(method.getProgram());
         rename(method.getAnnotations(), renamedMethod.getAnnotations());
-        rename(renamedMethod.getProgram());
+        for (int i = 0; i < method.parameterCount(); ++i) {
+            rename(method.parameterAnnotation(i), renamedMethod.parameterAnnotation(i));
+        }
+
+        if (renamedMethod.getProgram() != null) {
+            rename(renamedMethod.getProgram());
+        }
 
         renamedMethod.setTypeParameters(rename(method.getTypeParameters()));
         GenericValueType genericResultType = method.getGenericResultType();

@@ -37,8 +37,13 @@ class TestRunner {
 
     public void init() {
         latch = new CountDownLatch(numThreads);
+        strategy.beforeAll();
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            strategy.afterAll();
+        }));
+
         for (int i = 0; i < numThreads; ++i) {
-            new Thread(() -> {
+            Thread thread = new Thread(() -> {
                 strategy.beforeThread();
                 while (!stopped || !taskQueue.isEmpty()) {
                     Runnable task;
@@ -53,7 +58,10 @@ class TestRunner {
                 }
                 strategy.afterThread();
                 latch.countDown();
-            }).start();
+            });
+            thread.setDaemon(true);
+            thread.setName("teavm-test-runner-" + i);
+            thread.start();
         }
     }
 

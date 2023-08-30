@@ -1,8 +1,8 @@
 var $rt_decodeStack;
 
-function runMain(stackDecoder, callback) {
+function runMain(argument, stackDecoder, callback) {
     $rt_decodeStack = stackDecoder;
-    main([], function(result) {
+    main(argument !== null ? [argument] : [], function(result) {
         var message = {};
         if (result instanceof Error) {
             makeErrorMessage(message, result);
@@ -14,9 +14,10 @@ function runMain(stackDecoder, callback) {
 
     function makeErrorMessage(message, e) {
         message.status = "exception";
-        if (e.$javaException) {
-            message.className = e.$javaException.constructor.name;
-            message.message = e.$javaException.getMessage();
+        var je = main.javaException(e);
+        if (je) {
+            message.className = je.constructor.name;
+            message.message = je.getMessage();
         } else {
             message.className = Object.getPrototypeOf(e).name;
             message.message = e.message;

@@ -17,11 +17,11 @@ package org.teavm.cli;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
+import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.HelpFormatter;
-import org.apache.commons.cli.OptionBuilder;
+import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
-import org.apache.commons.cli.PosixParser;
 import org.teavm.tooling.ConsoleTeaVMToolLog;
 import org.teavm.tooling.c.incremental.IncrementalCBuilder;
 
@@ -34,46 +34,61 @@ public class TeaVMCBuilderRunner {
         setupOptions();
     }
 
-    @SuppressWarnings("static-access")
     private static void setupOptions() {
-        options.addOption(OptionBuilder
-                .withArgName("directory")
+        options.addOption(Option.builder("d")
+                .argName("directory")
                 .hasArg()
-                .withDescription("a directory in which generated C files will be placed")
-                .withLongOpt("targetdir")
-                .create('d'));
-        options.addOption(OptionBuilder
-                .withArgName("classpath")
+                .desc("a directory in which generated C files will be placed")
+                .longOpt("targetdir")
+                .build());
+        options.addOption(Option.builder("p")
+                .argName("classpath")
                 .hasArgs()
-                .withDescription("classpath element (either directory or jar file)")
-                .withLongOpt("classpath")
-                .create('p'));
-        options.addOption(OptionBuilder
-                .withDescription("display more messages on server log")
-                .withLongOpt("verbose")
-                .create('v'));
-        options.addOption(OptionBuilder
-                .withDescription("generate debugger-friendly code")
-                .withLongOpt("debug")
-                .create('g'));
-        options.addOption(OptionBuilder
-                .withLongOpt("min-heap")
-                .withArgName("size")
+                .desc("classpath element (either directory or jar file)")
+                .longOpt("classpath")
+                .build());
+        options.addOption(Option.builder("v")
+                .desc("display more messages on server log")
+                .longOpt("verbose")
+                .build());
+        options.addOption(Option.builder("g")
+                .desc("generate debugger-friendly code")
+                .longOpt("debug")
+                .build());
+        options.addOption(Option.builder()
+                .longOpt("min-heap")
+                .argName("size")
                 .hasArg()
-                .withDescription("Minimum heap size in bytes")
-                .create());
-        options.addOption(OptionBuilder
-                .withLongOpt("external-tool")
-                .withArgName("path")
+                .desc("Minimum heap size in megabytes")
+                .build());
+        options.addOption(Option.builder()
+                .longOpt("max-heap")
+                .argName("size")
                 .hasArg()
-                .withDescription("Process to run after successful build")
-                .create());
-        options.addOption(OptionBuilder
-                .withLongOpt("external-tool-workdir")
-                .withArgName("path")
+                .desc("Minimum heap size in megabytes")
+                .build());
+        options.addOption(Option.builder()
+                .longOpt("no-longjmp")
+                .desc("Don't use setjmp/longjmp functions to emulate exception handling")
+                .build());
+        options.addOption(Option.builder("e")
+                .longOpt("entry-point")
+                .argName("name")
                 .hasArg()
-                .withDescription("Working directory of process")
-                .create());
+                .desc("Name of entry point function (main by default)")
+                .build());
+        options.addOption(Option.builder()
+                .longOpt("external-tool")
+                .argName("path")
+                .hasArg()
+                .desc("Process to run after successful build")
+                .build());
+        options.addOption(Option.builder()
+                .longOpt("external-tool-workdir")
+                .argName("path")
+                .hasArg()
+                .desc("Working directory of process")
+                .build());
     }
 
     private TeaVMCBuilderRunner(CommandLine commandLine) {
@@ -86,7 +101,7 @@ public class TeaVMCBuilderRunner {
             printUsage();
             return;
         }
-        CommandLineParser parser = new PosixParser();
+        CommandLineParser parser = new DefaultParser();
         CommandLine commandLine;
         try {
             commandLine = parser.parse(options, args);
@@ -108,12 +123,18 @@ public class TeaVMCBuilderRunner {
 
         builder.setLog(new ConsoleTeaVMToolLog(commandLine.hasOption('v')));
         builder.setLineNumbersGenerated(commandLine.hasOption('g'));
+        if (commandLine.hasOption('e')) {
+            builder.setMainFunctionName(commandLine.getOptionValue('e'));
+        }
+        if (commandLine.hasOption("no-longjmp")) {
+            builder.setLongjmpSupported(false);
+        }
 
         String[] args = commandLine.getArgs();
         if (args.length != 1) {
             System.err.println("Unexpected arguments");
             printUsage();
-        } else if (args.length == 1) {
+        } else {
             builder.setMainClass(args[0]);
         }
     }
@@ -157,6 +178,18 @@ public class TeaVMCBuilderRunner {
                 return;
             }
             builder.setMinHeapSize(size);
+        }
+
+        if (commandLine.hasOption("max-heap")) {
+            int size;
+            try {
+                size = Integer.parseInt(commandLine.getOptionValue("max-heap"));
+            } catch (NumberFormatException e) {
+                System.err.print("Wrong heap size");
+                printUsage();
+                return;
+            }
+            builder.setMaxHeapSize(size);
         }
     }
 

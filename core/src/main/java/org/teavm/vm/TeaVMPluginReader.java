@@ -21,10 +21,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -35,9 +35,9 @@ import java.util.stream.Collectors;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
-import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.teavm.metaprogramming.CompileTime;
+import org.teavm.parsing.AsmUtil;
 import org.teavm.vm.spi.After;
 import org.teavm.vm.spi.Before;
 import org.teavm.vm.spi.Requires;
@@ -55,11 +55,11 @@ final class TeaVMPluginReader {
     static void load(ClassLoader classLoader, Consumer<String> consumer) {
         Set<String> unorderedPlugins = new HashSet<>();
         try {
-            Enumeration<URL> resourceFiles = classLoader.getResources(DESCRIPTOR_LOCATION);
+            var resourceFiles = classLoader.getResources(DESCRIPTOR_LOCATION);
             while (resourceFiles.hasMoreElements()) {
                 URL resourceFile = resourceFiles.nextElement();
-                try (BufferedReader input = new BufferedReader(
-                        new InputStreamReader(resourceFile.openStream(), "UTF-8"))) {
+                try (var input = new BufferedReader(
+                        new InputStreamReader(resourceFile.openStream(), StandardCharsets.UTF_8))) {
                     readPlugins(input, unorderedPlugins);
                 }
             }
@@ -205,8 +205,8 @@ final class TeaVMPluginReader {
     static class PluginDescriptorFiller extends ClassVisitor {
         PluginDescriptor descriptor;
 
-        public PluginDescriptorFiller(PluginDescriptor descriptor) {
-            super(Opcodes.ASM7);
+        PluginDescriptorFiller(PluginDescriptor descriptor) {
+            super(AsmUtil.API_VERSION);
             this.descriptor = descriptor;
         }
 
@@ -223,12 +223,12 @@ final class TeaVMPluginReader {
         }
 
         private AnnotationVisitor readClassArray(Consumer<String[]> resultConsumer) {
-            return new AnnotationVisitor(Opcodes.ASM7) {
+            return new AnnotationVisitor(AsmUtil.API_VERSION) {
                 @Override
                 public AnnotationVisitor visitArray(String name) {
                     List<String> values = new ArrayList<>();
                     if (name.equals("value")) {
-                        return new AnnotationVisitor(Opcodes.ASM7) {
+                        return new AnnotationVisitor(AsmUtil.API_VERSION) {
                             @Override
                             public void visit(String name, Object value) {
                                 values.add(((Type) value).getClassName());

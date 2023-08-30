@@ -16,6 +16,8 @@
 package org.teavm.runtime;
 
 import java.util.Arrays;
+import org.teavm.backend.c.intrinsic.RuntimeInclude;
+import org.teavm.interop.Export;
 import org.teavm.interop.Import;
 import org.teavm.interop.StaticInit;
 
@@ -55,7 +57,7 @@ public final class EventQueue {
     }
 
     public static void kill(int id) {
-        for (int i = 0; i < data.length; ++i) {
+        for (int i = 0; i < size; ++i) {
             if (data[i].id == id) {
                 remove(i);
                 break;
@@ -67,6 +69,31 @@ public final class EventQueue {
         while (size > 0 && !finished) {
             next();
         }
+    }
+
+    @Export(name = "teavm_processQueue")
+    public static long processSingle() {
+        if (size == 0) {
+            return -1;
+        }
+
+        Node node = data[0];
+        long currentTime = System.currentTimeMillis();
+        if (node.time <= System.currentTimeMillis()) {
+            remove(0);
+            node.event.run();
+            if (size == 0) {
+                return -1;
+            }
+            return Math.max(0, node.time - currentTime);
+        } else {
+            return node.time - currentTime;
+        }
+    }
+
+    @Export(name = "teavm_stopped")
+    public static boolean isStopped() {
+        return finished;
     }
 
     public static void stop() {
@@ -125,9 +152,11 @@ public final class EventQueue {
     }
 
     @Import(name = "teavm_waitFor")
+    @RuntimeInclude("fiber.h")
     private static native void waitFor(long time);
 
-    @Import(name = "teavm_interrupt")
+    @Import(name = "teavm_interrupt", module = "teavm")
+    @RuntimeInclude("fiber.h")
     private static native void interrupt();
 
     private static void ensureCapacity(int capacity) {

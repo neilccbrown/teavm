@@ -1,4 +1,5 @@
-#include "runtime.h"
+#include "references.h"
+#include "core.h"
 
 int32_t teavm_reference_enqueue(TeaVM_Reference* reference) {
     TeaVM_ReferenceQueue* queue = reference->queue;
@@ -9,9 +10,11 @@ int32_t teavm_reference_enqueue(TeaVM_Reference* reference) {
     if (queue->last == NULL) {
         queue->first = reference;
     } else {
+        teavm_gc_writeBarrier(queue->last);
         queue->last->next = reference;
     }
     queue->last = reference;
+    teavm_gc_writeBarrier(queue);
 
     return INT32_C(1);
 }
@@ -35,6 +38,7 @@ TeaVM_Reference* teavm_reference_poll(TeaVM_ReferenceQueue* queue) {
 
     TeaVM_Reference* reference = queue->first;
     queue->first = reference->next;
+    teavm_gc_writeBarrier(queue);
     if (queue->first == NULL) {
         queue->last = NULL;
     }

@@ -21,12 +21,12 @@ var Benchmark = function() {
         this.resultTableBody = document.getElementById("result-table-body");
     }
     Benchmark.prototype.load = function() {
-        TeaVM.wasm.run("teavm-wasm/classes.wasm", {
+        TeaVM.wasm.load("wasm/benchmark.wasm", {
             installImports: installImports.bind(this),
-            callback: function(result) {
-                this.instance = result.instance;
-            }.bind(this)
-        });
+        }).then(teavm => {
+            this.instance = teavm.instance;
+            teavm.main();
+        })
     };
 
     function installImports(o) {
@@ -93,7 +93,7 @@ var Benchmark = function() {
     function tick() {
         var exports = this.instance.exports;
         exports.tick();
-        var exception = exports.sys_catchException();
+        var exception = exports.teavm_catchException();
         if (exception !== 0) {
             console.log("Exception: " + exception);
         }

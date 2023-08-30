@@ -46,7 +46,6 @@ import org.teavm.dependency.DependencyInfo;
 import org.teavm.dependency.DependencyListener;
 import org.teavm.dependency.DependencyPlugin;
 import org.teavm.dependency.Linker;
-import org.teavm.dependency.MethodDependency;
 import org.teavm.dependency.MethodDependencyInfo;
 import org.teavm.diagnostics.AccumulationDiagnostics;
 import org.teavm.diagnostics.Diagnostics;
@@ -89,6 +88,7 @@ import org.teavm.model.optimization.MethodOptimization;
 import org.teavm.model.optimization.MethodOptimizationContext;
 import org.teavm.model.optimization.RedundantJumpElimination;
 import org.teavm.model.optimization.RedundantNullCheckElimination;
+import org.teavm.model.optimization.RepeatedFieldReadElimination;
 import org.teavm.model.optimization.ScalarReplacement;
 import org.teavm.model.optimization.UnreachableBasicBlockElimination;
 import org.teavm.model.optimization.UnusedVariableElimination;
@@ -170,6 +170,8 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
         classSourcePacker = builder.classSourcePacker;
         dependencyAnalyzer = builder.dependencyAnalyzerFactory.create(builder.classSource, classLoader,
                 this, diagnostics, builder.referenceCache);
+        dependencyAnalyzer.setObfuscated(builder.obfuscated);
+        dependencyAnalyzer.setStrict(builder.strict);
         progressListener = new TeaVMProgressListener() {
             @Override public TeaVMProgressFeedback progressReached(int progress) {
                 return TeaVMProgressFeedback.CONTINUE;
@@ -288,7 +290,7 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
                     + "for class " + className);
         }
 
-        ClassReader cls = dependencyAnalyzer.getClassSource().get(className);
+        var cls = dependencyAnalyzer.getClassSource().get(className);
         if (cls == null) {
             diagnostics.error(null, "There's no main class: '{{c0}}'", className);
             return;
@@ -300,10 +302,10 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
             return;
         }
 
-        MethodDependency mainMethod = dependencyAnalyzer.linkMethod(new MethodReference(className,
+        var mainMethod = dependencyAnalyzer.linkMethod(new MethodReference(className,
                 "main", ValueType.parse(String[].class), ValueType.VOID));
 
-        TeaVMEntryPoint entryPoint = new TeaVMEntryPoint(name, mainMethod);
+        var entryPoint = new TeaVMEntryPoint(name, mainMethod);
         dependencyAnalyzer.defer(() -> {
             dependencyAnalyzer.linkClass(className).initClass(null);
             mainMethod.getVariable(1).propagate(dependencyAnalyzer.getType("[Ljava/lang/String;"));
@@ -437,7 +439,7 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
             compileProgressLimit *= 2;
         }
 
-        ListableClassHolderSource classSet = link(dependencyAnalyzer);
+        var classSet = link(dependencyAnalyzer);
         writtenClasses = classSet;
         if (wasCancelled()) {
             return null;
@@ -449,7 +451,7 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
                 return null;
             }
 
-            ClassInitializerAnalysis classInitializerAnalysis = new ClassInitializerAnalysis(classSet,
+            var classInitializerAnalysis = new ClassInitializerAnalysis(classSet,
                     dependencyAnalyzer.getClassHierarchy());
             classInitializerAnalysis.analyze(dependencyAnalyzer);
             classInitializerInfo = classInitializerAnalysis;
@@ -462,12 +464,21 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
 
         dependencyAnalyzer.cleanupTypes();
 
+        target.setController(targetController);
+
+        for (String className : classSet.getClassNames()) {
+            ClassHolder cls = classSet.get(className);
+            for (MethodHolder method : cls.getMethods()) {
+                if (method.getProgram() != null) {
+                    target.beforeInlining(method.getProgram(), method);
+                }
+            }
+        }
         inline(classSet);
         if (wasCancelled()) {
             return null;
         }
 
-        target.setController(targetController);
         target.analyzeBeforeOptimizations(new ListableClassReaderSourceAdapter(
                 dependencyAnalyzer.getClassSource(),
                 new LinkedHashSet<>(dependencyAnalyzer.getReachableClasses())));
@@ -482,11 +493,13 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
     }
 
     private ListableClassHolderSource lazyPipeline() {
-        return new PostProcessingClassHolderSource();
+        var result = new PostProcessingClassHolderSource();
+        writtenClasses = result;
+        return result;
     }
 
     private void insertClassInit(ListableClassHolderSource classes) {
-        ClassInitializerInsertionTransformer clinitInsertion = new ClassInitializerInsertionTransformer(
+        var clinitInsertion = new ClassInitializerInsertionTransformer(
                 dependencyAnalyzer.getClassSource(), classInitializerInfo);
         for (String className : classes.getClassNames()) {
             ClassHolder cls = classes.get(className);
@@ -511,7 +524,7 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
                 for (BasicBlock block : program.getBasicBlocks()) {
                     for (Instruction instruction : block) {
                         if (instruction instanceof InitClassInstruction) {
-                            InitClassInstruction clinit = (InitClassInstruction) instruction;
+                            var clinit = (InitClassInstruction) instruction;
                             if (!classInitializerInfo.isDynamicInitializer(clinit.getClassName())) {
                                 clinit.delete();
                             }
@@ -521,8 +534,12 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
             }
         }
 
-        for (TeaVMEntryPoint entryPoint : entryPoints.values()) {
-            addInitializersToEntryPoint(classes, entryPoint.getMethod());
+        var initializers = target.getInitializerMethods();
+        if (initializers == null) {
+            initializers = entryPoints.values().stream().map(ep -> ep.getMethod()).collect(Collectors.toList());
+        }
+        for (var initMethod : initializers) {
+            addInitializersToEntryPoint(classes, initMethod);
         }
     }
 
@@ -541,7 +558,7 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
         BasicBlock block = program.basicBlockAt(0);
         Instruction first = block.getFirstInstruction();
         for (String className : classInitializerInfo.getInitializationOrder()) {
-            InvokeInstruction invoke = new InvokeInstruction();
+            var invoke = new InvokeInstruction();
             invoke.setMethod(new MethodReference(className, "<clinit>", ValueType.VOID));
             first.insertPrevious(invoke);
         }
@@ -549,8 +566,8 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
 
     public ListableClassHolderSource link(DependencyAnalyzer dependency) {
         Linker linker = new Linker(dependency);
-        MutableClassHolderSource cutClasses = new MutableClassHolderSource();
-        MissingItemsProcessor missingItemsProcessor = new MissingItemsProcessor(dependency,
+        var cutClasses = new MutableClassHolderSource();
+        var missingItemsProcessor = new MissingItemsProcessor(dependency,
                 dependency.getClassHierarchy(), diagnostics, target.getPlatformTags());
         if (wasCancelled()) {
             return cutClasses;
@@ -597,8 +614,13 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
         if (wasCancelled()) {
             return;
         }
-        Devirtualization devirtualization = new Devirtualization(dependencyAnalyzer,
-                dependencyAnalyzer.getClassHierarchy());
+
+        boolean shouldLog = System.getProperty("org.teavm.logDevirtualization", "false").equals("true");
+        if (shouldLog) {
+            System.out.println("Running devirtualization");
+        }
+
+        var devirtualization = new Devirtualization(dependencyAnalyzer, dependencyAnalyzer.getClassHierarchy());
         for (String className : classes.getClassNames()) {
             ClassHolder cls = classes.get(className);
             for (MethodHolder method : cls.getMethods()) {
@@ -612,6 +634,12 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
             }
         }
         virtualMethods = devirtualization.getVirtualMethods();
+
+        if (shouldLog) {
+            System.out.println("Devirtualization complete");
+            System.out.println("Virtual calls: " + devirtualization.getVirtualCallSites());
+            System.out.println("Direct calls: " + devirtualization.getDirectCallSites());
+        }
     }
 
     private void inline(ListableClassHolderSource classes) {
@@ -621,14 +649,15 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
 
         InliningStrategy inliningStrategy;
         if (optimizationLevel == TeaVMOptimizationLevel.FULL) {
-            inliningStrategy = new DefaultInliningStrategy(14, 7, 300, false);
+            inliningStrategy = new DefaultInliningStrategy(20, 7, 300, false);
         } else {
             inliningStrategy = new DefaultInliningStrategy(100, 7, 300, true);
         }
 
         Inlining inlining = new Inlining(new ClassHierarchy(classes), dependencyAnalyzer, inliningStrategy,
-                classes, this::isExternal, optimizationLevel == TeaVMOptimizationLevel.FULL);
-        List<MethodReference> methodReferences = inlining.getOrder();
+                classes, this::isExternal, optimizationLevel == TeaVMOptimizationLevel.FULL,
+                target.getInliningFilter());
+        var methodReferences = inlining.getOrder();
         int classCount = classes.getClassNames().size();
         int initialValue = compileProgressValue;
         for (int i = 0; i < methodReferences.size(); i++) {
@@ -648,7 +677,7 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
                     method.setProgram(null);
                 } else {
                     Program program = method.getProgram();
-                    MethodOptimizationContextImpl context = new MethodOptimizationContextImpl(method);
+                    var context = new MethodOptimizationContextImpl(method);
                     inlining.apply(program, method.getReference());
                     new UnusedVariableElimination().optimize(context, program);
                 }
@@ -699,7 +728,7 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
         target.beforeOptimizations(optimizedProgram, method);
 
         if (optimizedProgram.basicBlockCount() > 0) {
-            MethodOptimizationContextImpl context = new MethodOptimizationContextImpl(method);
+            var context = new MethodOptimizationContextImpl(method);
             boolean changed;
             do {
                 changed = false;
@@ -748,6 +777,11 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
         public DependencyInfo getDependencyInfo() {
             return dependencyAnalyzer;
         }
+
+        @Override
+        public ClassReaderSource getClassSource() {
+            return dependencyAnalyzer.getClassSource();
+        }
     }
 
     private List<MethodOptimization> getOptimizations() {
@@ -759,9 +793,12 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
             //optimizations.add(new LoopInversion());
             optimizations.add(new LoopInvariantMotion());
         }
-        optimizations.add(new GlobalValueNumbering(optimizationLevel == TeaVMOptimizationLevel.SIMPLE));
         if (optimizationLevel.ordinal() >= TeaVMOptimizationLevel.ADVANCED.ordinal()) {
-            optimizations.add(new RedundantNullCheckElimination());
+            optimizations.add(new RepeatedFieldReadElimination());
+        }
+        optimizations.add(new GlobalValueNumbering(optimizationLevel == TeaVMOptimizationLevel.SIMPLE));
+        optimizations.add(new RedundantNullCheckElimination());
+        if (optimizationLevel.ordinal() >= TeaVMOptimizationLevel.ADVANCED.ordinal()) {
             optimizations.add(new ConstantConditionElimination());
             optimizations.add(new RedundantJumpElimination());
             optimizations.add(new UnusedVariableElimination());
@@ -824,7 +861,7 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
     }
 
     boolean isVirtual(MethodReference method) {
-        if (method.getName().equals("<init>") || method.getName().equals("<clinit>")) {
+        if (method.getName().equals("<clinit>")) {
             return false;
         }
         return virtualMethods == null || virtualMethods.contains(method)
@@ -950,8 +987,9 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
                     if (program == null) {
                         program = ProgramUtils.copy(classReader.getMethod(method.getDescriptor()).getProgram());
                         missingItemsProcessor.processMethod(method.getReference(), program);
-                        linker.link(method.getReference(), program);
+                        linker.link(method, program);
                         clinitInsertion.apply(method, program);
+                        target.beforeInlining(program, method);
                         program = optimizeMethodCacheMiss(method, program);
                         Program finalProgram = program;
                         programCache.store(method.getReference(), finalProgram,
@@ -962,11 +1000,14 @@ public class TeaVM implements TeaVMHost, ServiceRepository {
 
                 for (MethodHolder method : cls.getMethods().toArray(new MethodHolder[0])) {
                     MethodDependencyInfo methodDep = dependencyAnalyzer.getMethod(method.getReference());
-                    if (methodDep == null) {
-                        cls.removeMethod(method);
-                    } else if (!methodDep.isUsed()) {
-                        method.getModifiers().add(ElementModifier.ABSTRACT);
-                        method.setProgram(null);
+                    if (methodDep == null || !methodDep.isUsed()) {
+                        if (method.hasModifier(ElementModifier.STATIC)) {
+                            cls.removeMethod(method);
+                        } else {
+                            method.getModifiers().add(ElementModifier.ABSTRACT);
+                            method.getModifiers().remove(ElementModifier.NATIVE);
+                            method.setProgram(null);
+                        }
                     } else {
                         MethodReader methodReader = classReader.getMethod(method.getDescriptor());
                         if (methodReader != null && methodReader.getProgram() != null) {

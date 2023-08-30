@@ -68,7 +68,7 @@ public class TString extends TObject implements TSerializable, TComparable<TStri
     }
 
     public TString(byte[] bytes, int offset, int length) {
-        initWithBytes(bytes, offset, length, new TUTF8Charset());
+        initWithBytes(bytes, offset, length, TUTF8Charset.INSTANCE);
     }
 
     public TString(byte[] bytes) {
@@ -114,6 +114,14 @@ public class TString extends TObject implements TSerializable, TComparable<TStri
         this(sb.buffer, 0, sb.length());
     }
 
+    private TString(int length) {
+        this.characters = new char[length];
+    }
+
+    private static TString allocate(int size) {
+        return new TString(size);
+    }
+
     @Override
     public char charAt(int index) {
         if (index < 0 || index >= characters.length) {
@@ -145,6 +153,16 @@ public class TString extends TObject implements TSerializable, TComparable<TStri
 
     public boolean isEmpty() {
         return characters.length == 0;
+    }
+    
+    public boolean isBlank() {
+        
+        for (int i = 0; i < characters.length; i++) {
+            if (characters[i] != ' ') {
+                return false;
+            }
+        }
+        return true;
     }
 
     public void getChars(int srcBegin, int srcEnd, char[] dst, int dstBegin) {
@@ -556,7 +574,7 @@ public class TString extends TObject implements TSerializable, TComparable<TStri
     }
 
     public byte[] getBytes() {
-        return getBytes(new TUTF8Charset());
+        return getBytes(TUTF8Charset.INSTANCE);
     }
 
     public byte[] getBytes(TCharset charset) {
@@ -667,7 +685,7 @@ public class TString extends TObject implements TSerializable, TComparable<TStri
         for (CharSequence element : elements) {
             resultLength += element.length();
         }
-        resultLength += elements.length * delimiter.length();
+        resultLength += (elements.length - 1) * delimiter.length();
 
         char[] chars = new char[resultLength];
         int index = 0;

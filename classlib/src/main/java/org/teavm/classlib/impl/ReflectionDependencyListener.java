@@ -201,13 +201,22 @@ public class ReflectionDependencyListener extends AbstractDependencyListener {
                 .addLocation(location)
                 .getVariable(0).getClassValueNode();
         classValueNode.addConsumer(reflectedType -> {
-            if (reflectedType.getName().startsWith("[")) {
+            if (reflectedType.getName().startsWith("[") || reflectedType.getName().startsWith("~")) {
+                return;
+            }
+
+            ClassReader cls = agent.getClassSource().get(reflectedType.getName());
+            if (cls == null || cls.hasModifier(ElementModifier.ABSTRACT)
+                    || cls.hasModifier(ElementModifier.INTERFACE)) {
                 return;
             }
 
             Set<MethodDescriptor> accessibleMethods = getAccessibleMethods(agent, reflectedType.getName());
-            ClassReader cls = agent.getClassSource().get(reflectedType.getName());
+
             for (MethodDescriptor methodDescriptor : accessibleMethods) {
+                if (!methodDescriptor.getName().equals("<init>")) {
+                    continue;
+                }
                 MethodReader calledMethod = cls.getMethod(methodDescriptor);
                 MethodDependency calledMethodDep = agent.linkMethod(calledMethod.getReference()).addLocation(location);
                 calledMethodDep.use();
@@ -218,8 +227,9 @@ public class ReflectionDependencyListener extends AbstractDependencyListener {
                 calledMethodDep.getVariable(0).propagate(reflectedType);
                 linkClassIfNecessary(agent, calledMethod, location);
             }
+
+            method.getResult().propagate(reflectedType);
         });
-        classValueNode.connect(method.getResult());
     }
 
     private void handleInvoke(DependencyAgent agent, MethodDependency method) {
@@ -235,6 +245,9 @@ public class ReflectionDependencyListener extends AbstractDependencyListener {
             Set<MethodDescriptor> accessibleMethods = getAccessibleMethods(agent, reflectedType.getName());
             ClassReader cls = agent.getClassSource().get(reflectedType.getName());
             for (MethodDescriptor methodDescriptor : accessibleMethods) {
+                if (methodDescriptor.getName().equals("<init>")) {
+                    continue;
+                }
                 MethodReader calledMethod = cls.getMethod(methodDescriptor);
                 MethodDependency calledMethodDep = agent.linkMethod(calledMethod.getReference()).addLocation(location);
                 calledMethodDep.use();
@@ -314,6 +327,9 @@ public class ReflectionDependencyListener extends AbstractDependencyListener {
                 case INTEGER:
                     boxMethod = new MethodReference(Integer.class, "valueOf", int.class, Integer.class);
                     break;
+                case LONG:
+                    boxMethod = new MethodReference(Long.class, "valueOf", long.class, Long.class);
+                    break;
                 case FLOAT:
                     boxMethod = new MethodReference(Float.class, "valueOf", float.class, Float.class);
                     break;
@@ -350,6 +366,9 @@ public class ReflectionDependencyListener extends AbstractDependencyListener {
                     break;
                 case INTEGER:
                     unboxMethod = new MethodReference(Integer.class, "intValue", int.class);
+                    break;
+                case LONG:
+                    unboxMethod = new MethodReference(Long.class, "longValue", long.class);
                     break;
                 case FLOAT:
                     unboxMethod = new MethodReference(Float.class, "floatValue", float.class);

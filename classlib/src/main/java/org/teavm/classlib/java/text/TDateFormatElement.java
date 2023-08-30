@@ -17,7 +17,7 @@ package org.teavm.classlib.java.text;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +46,9 @@ abstract class TDateFormatElement {
 
     static int whichMatches(String text, TParsePosition position, String[] patterns) {
         for (int i = 0; i < patterns.length; ++i) {
+            if (patterns[i] == null) {
+                continue;
+            }
             if (matches(text, position.getIndex(), patterns[i])) {
                 position.setIndex(position.getIndex() + patterns[i].length());
                 return i;
@@ -117,7 +120,7 @@ abstract class TDateFormatElement {
 
         @Override
         public void format(TCalendar date, StringBuffer buffer) {
-            int weekday = date.get(TCalendar.DAY_OF_WEEK) - 1;
+            int weekday = date.get(TCalendar.DAY_OF_WEEK);
             buffer.append(abbreviated ? shortWeeks[weekday] : weeks[weekday]);
         }
 
@@ -239,10 +242,12 @@ abstract class TDateFormatElement {
     public static class Numeric extends TDateFormatElement {
         private int field;
         private int length;
+        private int maxLength;
 
-        public Numeric(int field, int length) {
+        public Numeric(int field, int length, int maxLength) {
             this.field = field;
             this.length = length;
+            this.maxLength = Math.max(length, maxLength);
         }
 
         @Override
@@ -260,7 +265,7 @@ abstract class TDateFormatElement {
             int num = 0;
             int i = 0;
             int pos = position.getIndex();
-            while (pos < text.length()) {
+            while (pos < text.length() && i < maxLength) {
                 char c = text.charAt(pos);
                 if (c >= '0' && c <= '9') {
                     num = num * 10 + (c - '0');
@@ -306,7 +311,7 @@ abstract class TDateFormatElement {
 
     public static class NumericMonth extends Numeric {
         public NumericMonth(int length) {
-            super(TCalendar.MONTH, length);
+            super(TCalendar.MONTH, length, 2);
         }
 
         @Override
@@ -322,7 +327,7 @@ abstract class TDateFormatElement {
 
     public static class NumericWeekday extends Numeric {
         public NumericWeekday(int length) {
-            super(TCalendar.DAY_OF_WEEK, length);
+            super(TCalendar.DAY_OF_WEEK, length, 1);
         }
 
         @Override
@@ -340,7 +345,7 @@ abstract class TDateFormatElement {
         private int limit;
 
         public NumericHour(int field, int length, int limit) {
-            super(field, length);
+            super(field, length, 2);
             this.limit = limit;
         }
 
@@ -856,7 +861,7 @@ abstract class TDateFormatElement {
                 builders.add(tmp);
                 tmp = tmp.sibling;
             }
-            Collections.sort(builders, (o1, o2) -> Character.compare(o1.ch, o2.ch));
+            builders.sort(Comparator.comparingInt(o -> o.ch));
             node.chars = new char[builders.size()];
             node.childNodes = new TrieNode[builders.size()];
             for (int i = 0; i < node.chars.length; ++i) {

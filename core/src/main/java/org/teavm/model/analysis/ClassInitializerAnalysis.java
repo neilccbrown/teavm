@@ -26,19 +26,15 @@ import java.util.Map;
 import java.util.Set;
 import org.teavm.dependency.DependencyInfo;
 import org.teavm.dependency.MethodDependencyInfo;
-import org.teavm.dependency.ValueDependencyInfo;
 import org.teavm.interop.NoSideEffects;
 import org.teavm.interop.StaticInit;
-import org.teavm.model.BasicBlockReader;
 import org.teavm.model.ClassHierarchy;
-import org.teavm.model.ClassReader;
 import org.teavm.model.ElementModifier;
 import org.teavm.model.FieldReference;
 import org.teavm.model.ListableClassReaderSource;
 import org.teavm.model.MethodDescriptor;
 import org.teavm.model.MethodReader;
 import org.teavm.model.MethodReference;
-import org.teavm.model.ProgramReader;
 import org.teavm.model.ValueType;
 import org.teavm.model.VariableReader;
 import org.teavm.model.instructions.AbstractInstructionReader;
@@ -70,7 +66,7 @@ public class ClassInitializerAnalysis implements ClassInitializerInfo {
         }
         this.dependencyInfo = dependencyInfo;
 
-        for (String className : classes.getClassNames()) {
+        for (var className : classes.getClassNames()) {
             analyze(className);
         }
 
@@ -91,7 +87,7 @@ public class ClassInitializerAnalysis implements ClassInitializerInfo {
     }
 
     private void analyze(String className) {
-        byte classStatus = classStatuses.get(className);
+        var classStatus = classStatuses.get(className);
         switch (classStatus) {
             case BEING_ANALYZED:
                 if (!className.equals(currentAnalyzedClass)) {
@@ -103,7 +99,7 @@ public class ClassInitializerAnalysis implements ClassInitializerInfo {
                 return;
         }
 
-        ClassReader cls = classes.get(className);
+        var cls = classes.get(className);
 
         if (cls == null || cls.getAnnotations().get(StaticInit.class.getName()) != null) {
             classStatuses.put(className, STATIC);
@@ -111,13 +107,13 @@ public class ClassInitializerAnalysis implements ClassInitializerInfo {
         }
 
         classStatuses.put(className, BEING_ANALYZED);
-        String previousClass = currentAnalyzedClass;
+        var previousClass = currentAnalyzedClass;
         currentAnalyzedClass = className;
 
-        MethodReader initializer = cls.getMethod(CLINIT);
-        boolean isStatic = true;
+        var initializer = cls.getMethod(CLINIT);
+        var isStatic = true;
         if (initializer != null) {
-            MethodInfo initializerInfo = analyzeMethod(initializer);
+            var initializerInfo = analyzeMethod(initializer);
             if (isDynamicInitializer(initializerInfo, className)) {
                 isStatic = false;
             }
@@ -137,7 +133,7 @@ public class ClassInitializerAnalysis implements ClassInitializerInfo {
             return true;
         }
         if (methodInfo.classesWithModifiedFields != null) {
-            for (String affectedClass : methodInfo.classesWithModifiedFields) {
+            for (var affectedClass : methodInfo.classesWithModifiedFields) {
                 if (!affectedClass.equals(className)) {
                     return true;
                 }
@@ -147,18 +143,18 @@ public class ClassInitializerAnalysis implements ClassInitializerInfo {
     }
 
     private MethodInfo analyzeMethod(MethodReader method) {
-        MethodInfo methodInfo = methodInfoMap.get(method.getReference());
+        var methodInfo = methodInfoMap.get(method.getReference());
         if (methodInfo == null) {
             methodInfo = new MethodInfo(method.getReference());
             methodInfoMap.put(method.getReference(), methodInfo);
 
-            String currentClass = method.getDescriptor().equals(CLINIT) ? method.getOwnerName() : null;
-            InstructionAnalyzer reader = new InstructionAnalyzer(currentClass, methodInfo);
-            ProgramReader program = method.getProgram();
+            var currentClass = method.getDescriptor().equals(CLINIT) ? method.getOwnerName() : null;
+            var reader = new InstructionAnalyzer(currentClass, methodInfo);
+            var program = method.getProgram();
             if (program == null) {
                 methodInfo.anyFieldModified = hasSideEffects(method);
             } else {
-                for (BasicBlockReader block : program.getBasicBlocks()) {
+                for (var block : program.getBasicBlocks()) {
                     block.readAllInstructions(reader);
                 }
             }
@@ -174,10 +170,13 @@ public class ClassInitializerAnalysis implements ClassInitializerInfo {
     }
 
     private boolean hasSideEffects(MethodReader method) {
+        if (method.hasModifier(ElementModifier.ABSTRACT)) {
+            return false;
+        }
         if (method.getAnnotations().get(NoSideEffects.class.getName()) != null) {
             return false;
         }
-        ClassReader containingClass = classes.get(method.getOwnerName());
+        var containingClass = classes.get(method.getOwnerName());
         if (containingClass.getAnnotations().get(NoSideEffects.class.getName()) != null) {
             return false;
         }
@@ -217,6 +216,13 @@ public class ClassInitializerAnalysis implements ClassInitializerInfo {
         @Override
         public void putField(VariableReader instance, FieldReference field, VariableReader value, ValueType fieldType) {
             if (instance == null) {
+                var cls = classes.get(field.getClassName());
+                if (cls != null) {
+                    var fieldReader = cls.getField(field.getFieldName());
+                    if (fieldReader != null && fieldReader.hasModifier(ElementModifier.FINAL)) {
+                        return;
+                    }
+                }
                 touchField(field);
             }
         }
@@ -235,10 +241,10 @@ public class ClassInitializerAnalysis implements ClassInitializerInfo {
         public void invoke(VariableReader receiver, VariableReader instance, MethodReference method,
                 List<? extends VariableReader> arguments, InvocationType type) {
             if (type == InvocationType.VIRTUAL) {
-                ValueDependencyInfo instanceDep = methodDep.getVariable(instance.getIndex());
-                Set<MethodReference> implementations = Devirtualization.implementations(hierarchy, dependencyInfo,
+                var instanceDep = methodDep.getVariable(instance.getIndex());
+                var implementations = Devirtualization.implementations(hierarchy, dependencyInfo,
                         instanceDep.getTypes(), method);
-                for (MethodReference implementation : implementations) {
+                for (var implementation : implementations) {
                     invokeMethod(implementation);
                 }
             } else {
@@ -248,9 +254,9 @@ public class ClassInitializerAnalysis implements ClassInitializerInfo {
         }
 
         private void invokeMethod(MethodReference method) {
-            ClassReader cls = classes.get(method.getClassName());
+            var cls = classes.get(method.getClassName());
             if (cls != null) {
-                MethodReader methodReader = cls.getMethod(method.getDescriptor());
+                var methodReader = cls.getMethod(method.getDescriptor());
                 if (methodReader != null) {
                     analyzeCalledMethod(analyzeMethod(methodReader));
                 }
@@ -278,6 +284,9 @@ public class ClassInitializerAnalysis implements ClassInitializerInfo {
             }
 
             analyze(className);
+            if (isDynamicInitializer(className)) {
+                methodInfo.anyFieldModified = true;
+            }
         }
 
         private void analyzeCalledMethod(MethodInfo calledMethod) {
@@ -289,8 +298,8 @@ public class ClassInitializerAnalysis implements ClassInitializerInfo {
                 methodInfo.anyFieldModified = true;
                 methodInfo.classesWithModifiedFields = null;
             } else if (calledMethod.classesWithModifiedFields != null) {
-                for (String className : calledMethod.classesWithModifiedFields) {
-                    if (className.equals(currentClass)) {
+                for (var className : calledMethod.classesWithModifiedFields) {
+                    if (!className.equals(currentClass)) {
                         if (methodInfo.classesWithModifiedFields == null) {
                             methodInfo.classesWithModifiedFields = new HashSet<>();
                         }
@@ -304,7 +313,6 @@ public class ClassInitializerAnalysis implements ClassInitializerInfo {
     static class MethodInfo {
         MethodReference method;
         boolean complete;
-        Set<MethodInfo> recursiveCallers;
         Set<String> classesWithModifiedFields;
         boolean anyFieldModified;
 

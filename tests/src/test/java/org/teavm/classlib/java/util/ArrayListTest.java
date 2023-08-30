@@ -159,4 +159,29 @@ public class ArrayListTest {
             // OK
         }
     }
+
+    @Test
+    public void removeIf() {
+        List<String> list = new ArrayList<>();
+        list.add("A1");
+        list.add("A2");
+        list.add("B1");
+        list.add("B2");
+
+        list.removeIf(e -> e.endsWith("2"));
+
+        assertEquals(2, list.size());
+        assertEquals("A1", list.get(0));
+        assertEquals("B1", list.get(1));
+    }
+
+    @Test
+    public void testToString() {
+        List list = new ArrayList<>();
+        list.add(list);
+        list.add("A");
+
+        assertEquals("[(this Collection), A]", list.toString());
+        assertEquals("[]", new ArrayList().toString());
+    }
 }

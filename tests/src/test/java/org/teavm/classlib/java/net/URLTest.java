@@ -31,8 +31,10 @@ import java.net.URLStreamHandlerFactory;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.teavm.junit.TeaVMTestRunner;
+import org.teavm.junit.WholeClassCompilation;
 
 @RunWith(TeaVMTestRunner.class)
+@WholeClassCompilation
 public class URLTest {
     URL u;
     URL u1;
@@ -226,6 +228,15 @@ public class URLTest {
         } catch (MalformedURLException e) {
             fail("Unexpected exception (jar protocol, relative path)" + e);
         }
+
+        // no protocol
+        caught = false;
+        try {
+            u = new URL(":");
+        } catch (MalformedURLException e) {
+            caught = true;
+        }
+        assertTrue("7 Failed to throw MalformedURLException", caught);
     }
 
     @Test

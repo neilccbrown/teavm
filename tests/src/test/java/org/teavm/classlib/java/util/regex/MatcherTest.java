@@ -42,9 +42,11 @@ import java.util.regex.Pattern;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.teavm.junit.TeaVMTestRunner;
+import org.teavm.junit.WholeClassCompilation;
 
 @SuppressWarnings("nls")
 @RunWith(TeaVMTestRunner.class)
+@WholeClassCompilation
 public class MatcherTest {
     String[] testPatterns = {
             "(a|b)*abb",
@@ -722,6 +724,15 @@ public class MatcherTest {
     public void testToString() {
         String result = Pattern.compile("(\\d{1,3})").matcher("aaaa123456789045").toString();
         assertTrue("The result doesn't contain pattern info", result.contains("(\\d{1,3})"));
+    }
+
+    @Test
+    public void testSOLRegion() {
+        Pattern pattern = Pattern.compile("^cd");
+        String input = "abcde";
+        Matcher matcher = pattern.matcher(input);
+        matcher.region(2, input.length());
+        assertTrue(matcher.lookingAt());
     }
 
     private void hitEndTest(boolean callFind, String testNo, String regex,

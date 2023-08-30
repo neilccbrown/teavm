@@ -55,10 +55,10 @@ public class ClassGenerator implements Generator, Injector, DependencyPlugin {
     public void generate(InjectorContext context, MethodReference methodRef) throws IOException {
         switch (methodRef.getName()) {
             case "newEmptyInstance":
-                context.getWriter().append("new ");
+                context.getWriter().append("new (");
                 context.writeExpr(context.getArgument(0), Precedence.MEMBER_ACCESS);
                 context.getWriter().append('.').appendField(platformClassField);
-                context.getWriter().append("()");
+                context.getWriter().append(")");
                 break;
         }
     }
@@ -67,7 +67,16 @@ public class ClassGenerator implements Generator, Injector, DependencyPlugin {
     public void methodReached(DependencyAgent agent, MethodDependency method) {
         switch (method.getReference().getName()) {
             case "newEmptyInstance":
-                method.getVariable(0).getClassValueNode().connect(method.getResult());
+                method.getVariable(0).getClassValueNode().addConsumer(type -> {
+                    String className = type.getName();
+                    if (!className.startsWith("[") && !className.startsWith("~")) {
+                        ClassReader cls = agent.getClassSource().get(className);
+                        if (cls != null && !cls.hasModifier(ElementModifier.ABSTRACT)
+                                && !cls.hasModifier(ElementModifier.INTERFACE)) {
+                            method.getResult().propagate(type);
+                        }
+                    }
+                });
                 break;
             case "getSuperclass":
                 reachGetSuperclass(agent, method);

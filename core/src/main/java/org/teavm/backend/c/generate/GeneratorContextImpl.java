@@ -17,27 +17,40 @@ package org.teavm.backend.c.generate;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import org.teavm.backend.c.generators.GeneratorContext;
+import org.teavm.backend.lowlevel.generate.NameProvider;
 import org.teavm.dependency.DependencyInfo;
 import org.teavm.diagnostics.Diagnostics;
 import org.teavm.model.ClassReaderSource;
+import org.teavm.model.MethodReference;
+import org.teavm.model.lowlevel.CallSiteDescriptor;
+import org.teavm.model.lowlevel.CallSiteLocation;
+import org.teavm.model.lowlevel.ExceptionHandlerDescriptor;
 
 class GeneratorContextImpl implements GeneratorContext {
     private GenerationContext context;
+    private ClassGenerationContext classContext;
     private CodeWriter bodyWriter;
     private CodeWriter writerBefore;
     private CodeWriter writerAfter;
     private IncludeManager includes;
     private List<FileGeneratorImpl> fileGenerators = new ArrayList<>();
+    private List<CallSiteDescriptor> callSites;
+    private boolean longjmp;
 
-    public GeneratorContextImpl(GenerationContext context, CodeWriter bodyWriter,
-            CodeWriter writerBefore, CodeWriter writerAfter, IncludeManager includes) {
-        this.context = context;
+    public GeneratorContextImpl(ClassGenerationContext classContext, CodeWriter bodyWriter,
+            CodeWriter writerBefore, CodeWriter writerAfter, IncludeManager includes,
+            List<CallSiteDescriptor> callSites, boolean longjmp) {
+        this.context = classContext.getContext();
+        this.classContext = classContext;
         this.bodyWriter = bodyWriter;
         this.writerBefore = writerBefore;
         this.writerAfter = writerAfter;
         this.includes = includes;
+        this.callSites = callSites;
+        this.longjmp = longjmp;
     }
 
     @Override
@@ -96,6 +109,11 @@ class GeneratorContextImpl implements GeneratorContext {
     }
 
     @Override
+    public void importMethod(MethodReference method, boolean isStatic) {
+        classContext.importMethod(method, isStatic);
+    }
+
+    @Override
     public FileGenerator createHeaderFile(String path) {
         BufferedCodeWriter writer = new BufferedCodeWriter(false);
         writer.println("#pragma once");
@@ -103,7 +121,7 @@ class GeneratorContextImpl implements GeneratorContext {
     }
 
     private FileGenerator createFile(BufferedCodeWriter writer, String path) {
-        IncludeManager includes = new SimpleIncludeManager(writer);
+        IncludeManager includes = new SimpleIncludeManager(context.getFileNames(), writer);
         includes.init(path);
         FileGeneratorImpl generator = new FileGeneratorImpl(path, writer, includes);
         fileGenerators.add(generator);
@@ -112,9 +130,21 @@ class GeneratorContextImpl implements GeneratorContext {
 
     @Override
     public String escapeFileName(String name) {
-        StringBuilder sb = new StringBuilder();
-        ClassGenerator.escape(name, sb);
-        return sb.toString();
+        return context.getFileNames().escapeName(name);
+    }
+
+    @Override
+    public CallSiteDescriptor createCallSite(CallSiteLocation[] locations,
+            ExceptionHandlerDescriptor[] exceptionHandlers) {
+        CallSiteDescriptor callSite = new CallSiteDescriptor(callSites.size(), locations);
+        callSite.getHandlers().addAll(Arrays.asList(exceptionHandlers));
+        callSites.add(callSite);
+        return callSite;
+    }
+
+    @Override
+    public boolean usesLongjmp() {
+        return longjmp;
     }
 
     void flush() throws IOException {

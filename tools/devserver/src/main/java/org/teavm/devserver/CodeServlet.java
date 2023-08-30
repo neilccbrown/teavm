@@ -151,7 +151,7 @@ public class CodeServlet extends HttpServlet {
 
     public CodeServlet(String mainClass, String[] classPath) {
         this.mainClass = mainClass;
-        this.classPath = classPath.clone();
+        this.classPath = classPath != null ? classPath.clone() : new String[0];
 
         httpClient = new HttpClient();
         httpClient.setFollowRedirects(false);
@@ -312,10 +312,12 @@ public class CodeServlet extends HttpServlet {
             if (!path.startsWith("/")) {
                 path = "/" + path;
             }
-            if (req.getMethod().equals("GET") && path.startsWith(pathToFile) && path.length() > pathToFile.length()) {
+            if ((req.getMethod().equals("GET") || req.getMethod().equals("OPTIONS"))
+                    && path.startsWith(pathToFile) && path.length() > pathToFile.length()) {
+                boolean hasBody = req.getMethod().equals("GET");
                 String fileName = path.substring(pathToFile.length());
                 if (fileName.startsWith("src/")) {
-                    if (serveSourceFile(fileName.substring("src/".length()), resp)) {
+                    if (serveSourceFile(fileName.substring("src/".length()), req, resp, hasBody)) {
                         log.debug("File " + path + " served as source file");
                         return;
                     }
@@ -326,7 +328,7 @@ public class CodeServlet extends HttpServlet {
                         }
                     }
                 } else if (path.equals(deobfuscatorPath)) {
-                    serveDeobfuscator(resp);
+                    serveDeobfuscator(req, resp, hasBody);
                     return;
                 } else {
                     byte[] fileContent;
@@ -336,16 +338,21 @@ public class CodeServlet extends HttpServlet {
                         firstTime = this.firstTime;
                     }
                     if (fileContent != null) {
-                        resp.setStatus(HttpServletResponse.SC_OK);
+                        resp.setStatus(hasBody ? HttpServletResponse.SC_OK : HttpServletResponse.SC_NO_CONTENT);
                         resp.setCharacterEncoding("UTF-8");
-                        resp.setHeader("Access-Control-Allow-Origin", "*");
-                        resp.setContentType("text/plain");
-                        resp.getOutputStream().write(fileContent);
+                        allowOrigin(req, resp);
+                        if (!hasBody) {
+                            resp.setHeader("Access-Control-Allow-Methods", "GET");
+                        } else {
+                            resp.setContentType(chooseContentType(fileName));
+                            noCache(resp);
+                            resp.getOutputStream().write(fileContent);
+                        }
                         resp.getOutputStream().flush();
                         log.debug("File " + path + " served as generated file");
                         return;
                     } else if (fileName.equals(this.fileName) && indicator && firstTime) {
-                        serveBootFile(resp);
+                        serveBootFile(req, resp, hasBody);
                         return;
                     }
                 }
@@ -365,13 +372,32 @@ public class CodeServlet extends HttpServlet {
         resp.setStatus(HttpServletResponse.SC_NOT_FOUND);
     }
 
-    private void serveDeobfuscator(HttpServletResponse resp) throws IOException {
+    private String chooseContentType(String name) {
+        if (name.endsWith(".js")) {
+            return "application/javascript";
+        } else if (name.endsWith(".js.map")) {
+            return "application/json";
+        } else if (name.endsWith(".teavmdbg")) {
+            return "application/octet-stream";
+        } else {
+            return "text/plain";
+        }
+    }
+
+    private void serveDeobfuscator(HttpServletRequest req, HttpServletResponse resp, boolean hasBody)
+            throws IOException {
         ClassLoader loader = CodeServlet.class.getClassLoader();
-        resp.setStatus(HttpServletResponse.SC_OK);
-        resp.setCharacterEncoding("UTF-8");
-        resp.setContentType("text/plain");
-        try (InputStream input = loader.getResourceAsStream("teavm/devserver/deobfuscator.js")) {
-            IOUtils.copy(input, resp.getOutputStream());
+        resp.setStatus(hasBody ? HttpServletResponse.SC_OK : HttpServletResponse.SC_NO_CONTENT);
+        allowOrigin(req, resp);
+        if (!hasBody) {
+            resp.setHeader("Access-Control-Allow-Methods", "GET");
+        } else {
+            resp.setCharacterEncoding("UTF-8");
+            resp.setContentType("application/javascript");
+            noCache(resp);
+            try (InputStream input = loader.getResourceAsStream("teavm/devserver/deobfuscator.js")) {
+                IOUtils.copy(input, resp.getOutputStream());
+            }
         }
         resp.getOutputStream().flush();
     }
@@ -431,8 +457,11 @@ public class CodeServlet extends HttpServlet {
             sent = true;
             resp.setStatus(response.getStatus());
 
+            int length = -1;
+            boolean isGzip = false;
             for (HttpField field : response.getHeaders()) {
-                if (field.getName().toLowerCase().equals("location")) {
+                String name = field.getName().toLowerCase();
+                if (name.equals("location")) {
                     String value = field.getValue();
                     if (value.startsWith(proxyUrl)) {
                         String relLocation = value.substring(proxyUrl.length());
@@ -440,7 +469,22 @@ public class CodeServlet extends HttpServlet {
                         continue;
                     }
                 }
+                if (name.equals("content-encoding")) {
+                    isGzip = true;
+                    continue;
+                } else if (name.equals("content-length")) {
+                    try {
+                        length = Integer.parseInt(field.getValue());
+                    } catch (NumberFormatException e) {
+                        // do nothing
+                    }
+                    continue;
+                }
                 resp.addHeader(field.getName(), field.getValue());
+            }
+
+            if (length > 0 && !isGzip) {
+                resp.addHeader("Content-Length", String.valueOf(length));
             }
         }
     }
@@ -588,16 +632,23 @@ public class CodeServlet extends HttpServlet {
         buildThread = thread;
     }
 
-    private boolean serveSourceFile(String fileName, HttpServletResponse resp) throws IOException {
+    private boolean serveSourceFile(String fileName, HttpServletRequest req, HttpServletResponse resp,
+            boolean hasBody) throws IOException {
         try (InputStream stream = sourceFileCache.computeIfAbsent(fileName, this::findSourceFile).get()) {
             if (stream == null) {
                 return false;
             }
 
-            resp.setStatus(HttpServletResponse.SC_OK);
+            resp.setStatus(hasBody ? HttpServletResponse.SC_OK : HttpServletResponse.SC_NO_CONTENT);
             resp.setCharacterEncoding("UTF-8");
-            resp.setContentType("text/plain");
-            IOUtils.copy(stream, resp.getOutputStream());
+            allowOrigin(req, resp);
+            if (!hasBody) {
+                resp.setHeader("Access-Control-Allow-Methods", "GET");
+            } else {
+                resp.setContentType("text/plain");
+                noCache(resp);
+                IOUtils.copy(stream, resp.getOutputStream());
+            }
             resp.getOutputStream().flush();
             return true;
         }
@@ -655,12 +706,18 @@ public class CodeServlet extends HttpServlet {
         }
     }
 
-    private void serveBootFile(HttpServletResponse resp) throws IOException {
-        resp.setStatus(HttpServletResponse.SC_OK);
+    private void serveBootFile(HttpServletRequest req, HttpServletResponse resp, boolean hasBody) throws IOException {
+        resp.setStatus(hasBody ? HttpServletResponse.SC_OK : HttpServletResponse.SC_NO_CONTENT);
         resp.setCharacterEncoding("UTF-8");
-        resp.setContentType("text/plain");
-        resp.getWriter().write("function main() { }\n");
-        resp.getWriter().write(getIndicatorScript(true));
+        allowOrigin(req, resp);
+        if (!hasBody) {
+            resp.setHeader("Access-Control-Allow-Methods", "GET");
+        } else {
+            resp.setContentType("text/plain");
+            noCache(resp);
+            resp.getWriter().write("function main() { }\n");
+            resp.getWriter().write(getIndicatorScript(true));
+        }
         resp.getWriter().flush();
         log.debug("Served boot file");
     }
@@ -764,13 +821,16 @@ public class CodeServlet extends HttpServlet {
                 .setClassSource(classSource)
                 .setDependencyAnalyzerFactory(FastDependencyAnalyzer::new)
                 .setClassSourcePacker(this::packClasses)
+                .setStrict(true)
+                .setObfuscated(false)
                 .build();
 
         jsTarget.setStackTraceIncluded(true);
-        jsTarget.setMinifying(false);
+        jsTarget.setObfuscated(false);
         jsTarget.setAstCache(astCache);
         jsTarget.setDebugEmitter(debugInformationBuilder);
-        jsTarget.setTopLevelNameLimit(500);
+        jsTarget.setTopLevelNameLimit(2000);
+        jsTarget.setStrict(true);
         vm.setOptimizationLevel(TeaVMOptimizationLevel.SIMPLE);
         vm.setCacheStatus(classSource);
         vm.addVirtualMethods(m -> true);
@@ -907,6 +967,7 @@ public class CodeServlet extends HttpServlet {
 
     private List<String> getChangedClasses(Collection<File> changedFiles) {
         List<String> result = new ArrayList<>();
+        String[] prefixes = Arrays.stream(classPath).map(s -> s.replace('\\', '/')).toArray(String[]::new);
 
         for (File file : changedFiles) {
             String path = file.getPath().replace('\\', '/');
@@ -914,7 +975,7 @@ public class CodeServlet extends HttpServlet {
                 continue;
             }
 
-            String prefix = Arrays.stream(classPath)
+            String prefix = Arrays.stream(prefixes)
                     .filter(path::startsWith)
                     .findFirst()
                     .orElse("");
@@ -1075,5 +1136,21 @@ public class CodeServlet extends HttpServlet {
             path = "/" + path;
         }
         return path;
+    }
+
+    static void noCache(HttpServletResponse response) {
+        response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    }
+
+    static void allowOrigin(HttpServletRequest req, HttpServletResponse resp) {
+        String origin = req.getHeader("Origin");
+        if (origin != null) {
+            resp.setHeader("Access-Control-Allow-Origin", origin);
+            resp.setHeader("Vary", "Origin");
+        } else {
+            resp.setHeader("Access-Control-Allow-Origin", "*");
+        }
+        resp.setHeader("Access-Control-Allow-Credentials", "true");
+        resp.setHeader("Access-Control-Allow-Private-Network", "true");
     }
 }

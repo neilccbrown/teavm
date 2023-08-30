@@ -22,10 +22,12 @@ import java.util.Map;
 import java.util.function.Predicate;
 import org.teavm.backend.c.generators.Generator;
 import org.teavm.backend.c.intrinsic.Intrinsic;
+import org.teavm.backend.lowlevel.generate.NameProvider;
 import org.teavm.dependency.DependencyInfo;
 import org.teavm.diagnostics.Diagnostics;
 import org.teavm.model.ClassReaderSource;
 import org.teavm.model.MethodReference;
+import org.teavm.model.analysis.ClassInitializerInfo;
 import org.teavm.model.classes.VirtualTableProvider;
 import org.teavm.model.lowlevel.Characteristics;
 import org.teavm.vm.BuildTarget;
@@ -36,6 +38,7 @@ public class GenerationContext {
     private DependencyInfo dependencies;
     private StringPool stringPool;
     private NameProvider names;
+    private FileNameProvider fileNames;
     private Diagnostics diagnostics;
     private ClassReaderSource classSource;
     private List<Intrinsic> intrinsics;
@@ -43,24 +46,37 @@ public class GenerationContext {
     private Map<MethodReference, Intrinsic> intrinsicCache = new HashMap<>();
     private Predicate<MethodReference> asyncMethods;
     private BuildTarget buildTarget;
+    private ClassInitializerInfo classInitializerInfo;
     private boolean incremental;
+    private boolean longjmp;
+    private boolean vmAssertions;
+    private boolean heapDump;
+    private boolean obfuscated;
 
     public GenerationContext(VirtualTableProvider virtualTableProvider, Characteristics characteristics,
-            DependencyInfo dependencies, StringPool stringPool, NameProvider names, Diagnostics diagnostics,
-            ClassReaderSource classSource, List<Intrinsic> intrinsics, List<Generator> generators,
-            Predicate<MethodReference> asyncMethods, BuildTarget buildTarget, boolean incremental) {
+            DependencyInfo dependencies, StringPool stringPool, NameProvider names, FileNameProvider fileNames,
+            Diagnostics diagnostics, ClassReaderSource classSource, List<Intrinsic> intrinsics,
+            List<Generator> generators, Predicate<MethodReference> asyncMethods, BuildTarget buildTarget,
+            ClassInitializerInfo classInitializerInfo, boolean incremental, boolean longjmp, boolean vmAssertions,
+            boolean heapDump, boolean obfuscated) {
         this.virtualTableProvider = virtualTableProvider;
         this.characteristics = characteristics;
         this.dependencies = dependencies;
         this.stringPool = stringPool;
         this.names = names;
+        this.fileNames = fileNames;
         this.diagnostics = diagnostics;
         this.classSource = classSource;
         this.intrinsics = new ArrayList<>(intrinsics);
         this.generators = new ArrayList<>(generators);
         this.asyncMethods = asyncMethods;
         this.buildTarget = buildTarget;
+        this.classInitializerInfo = classInitializerInfo;
         this.incremental = incremental;
+        this.longjmp = longjmp;
+        this.vmAssertions = vmAssertions;
+        this.heapDump = heapDump;
+        this.obfuscated = obfuscated;
     }
 
     public void addIntrinsic(Intrinsic intrinsic) {
@@ -89,6 +105,10 @@ public class GenerationContext {
 
     public NameProvider getNames() {
         return names;
+    }
+
+    public FileNameProvider getFileNames() {
+        return fileNames;
     }
 
     public Diagnostics getDiagnostics() {
@@ -121,7 +141,27 @@ public class GenerationContext {
         return buildTarget;
     }
 
+    public ClassInitializerInfo getClassInitializerInfo() {
+        return classInitializerInfo;
+    }
+
     public boolean isIncremental() {
         return incremental;
+    }
+
+    public boolean isLongjmp() {
+        return longjmp;
+    }
+
+    public boolean isHeapDump() {
+        return heapDump;
+    }
+
+    public boolean isVmAssertions() {
+        return vmAssertions;
+    }
+
+    public boolean isObfuscated() {
+        return obfuscated;
     }
 }

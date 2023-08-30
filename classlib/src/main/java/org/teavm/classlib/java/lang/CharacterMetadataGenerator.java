@@ -31,6 +31,12 @@ public class CharacterMetadataGenerator implements MetadataGenerator {
                 return generateObtainDigitMapping(context);
             case "obtainClasses":
                 return generateObtainClasses(context);
+            case "acquireTitleCaseMapping":
+                return generateAcquireTitleCaseMapping(context);
+            case "acquireUpperCaseMapping":
+                return generateAcquireUpperCaseMapping(context);
+            case "acquireLowerCaseMapping":
+                return generateAcquireLowerCaseMapping(context);
             default:
                 return null;
         }
@@ -38,13 +44,31 @@ public class CharacterMetadataGenerator implements MetadataGenerator {
 
     private Resource generateObtainDigitMapping(MetadataGeneratorContext context) {
         StringResource res = context.createResource(StringResource.class);
-        res.setValue(UnicodeHelper.encodeIntByte(UnicodeSupport.getDigitValues()));
+        res.setValue(UnicodeHelper.encodeIntPairsDiff(UnicodeSupport.getDigitValues()));
         return res;
     }
 
     private Resource generateObtainClasses(MetadataGeneratorContext context) {
         StringResource res = context.createResource(StringResource.class);
         res.setValue(UnicodeHelper.compressRle(UnicodeSupport.getClasses()));
+        return res;
+    }
+
+    private Resource generateAcquireTitleCaseMapping(MetadataGeneratorContext context) {
+        StringResource res = context.createResource(StringResource.class);
+        res.setValue(UnicodeHelper.encodeCaseMapping(UnicodeSupport.getTitleCaseMapping()));
+        return res;
+    }
+
+    private Resource generateAcquireUpperCaseMapping(MetadataGeneratorContext context) {
+        StringResource res = context.createResource(StringResource.class);
+        res.setValue(UnicodeHelper.encodeCaseMapping(UnicodeSupport.getUpperCaseMapping()));
+        return res;
+    }
+
+    private Resource generateAcquireLowerCaseMapping(MetadataGeneratorContext context) {
+        StringResource res = context.createResource(StringResource.class);
+        res.setValue(UnicodeHelper.encodeCaseMapping(UnicodeSupport.getLowerCaseMapping()));
         return res;
     }
 }
