@@ -16,6 +16,8 @@
 package org.teavm.classlib.java.lang;
 
 import org.teavm.backend.javascript.spi.InjectedBy;
+import org.teavm.classlib.PlatformDetector;
+import org.teavm.classlib.impl.text.DoubleSynthesizer;
 import org.teavm.interop.Import;
 import org.teavm.interop.NoSideEffects;
 import org.teavm.interop.Unmanaged;
@@ -25,21 +27,22 @@ import org.teavm.jso.JSBody;
 public class TDouble extends TNumber implements TComparable<TDouble> {
     public static final double POSITIVE_INFINITY = 1 / 0.0;
     public static final double NEGATIVE_INFINITY = -POSITIVE_INFINITY;
-    public static final double NaN = getNaN();
+    public static final double NaN = 0 / 0.0;
     public static final double MAX_VALUE = 0x1.FFFFFFFFFFFFFP+1023;
     public static final double MIN_NORMAL = -0x1.0P+1022;
     public static final double MIN_VALUE = 0x0.0000000000001P-1022;
     public static final int MAX_EXPONENT = 1023;
     public static final int MIN_EXPONENT = -1022;
     public static final int SIZE = 64;
+    public static final int BYTES = SIZE / Byte.SIZE;
     public static final Class<Double> TYPE = double.class;
-    private double value;
+    private final double value;
 
     public TDouble(double value) {
         this.value = value;
     }
 
-    public TDouble(TString value) throws TNumberFormatException {
+    public TDouble(String value) throws TNumberFormatException {
         this.value = parseDouble(value);
     }
 
@@ -71,24 +74,28 @@ public class TDouble extends TNumber implements TComparable<TDouble> {
         return new TStringBuilder().append(d).toString();
     }
 
-    public static TDouble valueOf(TString string) {
+    public static TDouble valueOf(String string) {
         return valueOf(parseDouble(string));
     }
 
-    public static double parseDouble(TString string) throws TNumberFormatException {
+    public static double parseDouble(String string) throws NumberFormatException {
         // TODO: parse infinite and different radix
 
         if (string.isEmpty()) {
-            throw new TNumberFormatException();
+            throw new NumberFormatException();
         }
         int start = 0;
         int end = string.length();
         while (string.charAt(start) <= ' ') {
             if (++start == end) {
-                throw new TNumberFormatException();
+                throw new NumberFormatException();
             }
         }
         while (string.charAt(end - 1) <= ' ') {
+            --end;
+        }
+        if (string.charAt(end - 1) == 'f' || string.charAt(end - 1) == 'F'
+                || string.charAt(end - 1) == 'd' || string.charAt(end - 1) == 'D') {
             --end;
         }
 
@@ -101,17 +108,18 @@ public class TDouble extends TNumber implements TComparable<TDouble> {
             ++index;
         }
         if (index == end) {
-            throw new TNumberFormatException();
+            throw new NumberFormatException();
         }
         char c = string.charAt(index);
 
         long mantissa = 0;
-        int exp = 0;
+        int exp = -1;
         boolean hasOneDigit = false;
+        long mantissaPos = 1000000000000000000L;
         if (c != '.') {
             hasOneDigit = true;
             if (c < '0' || c > '9') {
-                throw new TNumberFormatException();
+                throw new NumberFormatException();
             }
             while (index < end && string.charAt(index) == '0') {
                 ++index;
@@ -121,11 +129,11 @@ public class TDouble extends TNumber implements TComparable<TDouble> {
                 if (c < '0' || c > '9') {
                     break;
                 }
-                if (mantissa < TLong.MAX_VALUE / 10 - 9) {
-                    mantissa = mantissa * 10 + (c - '0');
-                } else {
-                    ++exp;
+                if (mantissaPos > 0) {
+                    mantissa = mantissa + (mantissaPos * (c - '0'));
+                    mantissaPos = Long.divideUnsigned(mantissaPos, 10);
                 }
+                ++exp;
                 ++index;
             }
         }
@@ -136,26 +144,28 @@ public class TDouble extends TNumber implements TComparable<TDouble> {
                 if (c < '0' || c > '9') {
                     break;
                 }
-                if (mantissa < TLong.MAX_VALUE / 10 - 9) {
-                    mantissa = mantissa * 10 + (c - '0');
-                    --exp;
+                if (mantissa == 0 && c == '0') {
+                    exp--;
+                } else if (mantissaPos > 0) {
+                    mantissa = mantissa + (mantissaPos * (c - '0'));
+                    mantissaPos = Long.divideUnsigned(mantissaPos, 10);
                 }
                 ++index;
                 hasOneDigit = true;
             }
             if (!hasOneDigit) {
-                throw new TNumberFormatException();
+                throw new NumberFormatException();
             }
         }
         if (index < end) {
             c = string.charAt(index);
             if (c != 'e' && c != 'E') {
-                throw new TNumberFormatException();
+                throw new NumberFormatException();
             }
             ++index;
             boolean negativeExp = false;
             if (index == end) {
-                throw new TNumberFormatException();
+                throw new NumberFormatException();
             }
             if (string.charAt(index) == '-') {
                 ++index;
@@ -175,39 +185,15 @@ public class TDouble extends TNumber implements TComparable<TDouble> {
                 ++index;
             }
             if (!hasOneDigit) {
-                throw new TNumberFormatException();
+                throw new NumberFormatException();
             }
             if (negativeExp) {
                 numExp = -numExp;
             }
             exp += numExp;
         }
-        if (exp > 308 || exp == 308 && mantissa > 17976931348623157L) {
-            return !negative ? POSITIVE_INFINITY : NEGATIVE_INFINITY;
-        }
-        if (negative) {
-            mantissa = -mantissa;
-        }
-        return mantissa * decimalExponent(exp);
-    }
 
-    public static double decimalExponent(int n) {
-        double d;
-        if (n < 0) {
-            d = 0.1;
-            n = -n;
-        } else {
-            d = 10;
-        }
-        double result = 1;
-        while (n != 0) {
-            if (n % 2 != 0) {
-                result *= d;
-            }
-            d *= d;
-            n /= 2;
-        }
-        return result;
+        return DoubleSynthesizer.synthesizeDouble(mantissa, exp, negative);
     }
 
     @Override
@@ -220,7 +206,18 @@ public class TDouble extends TNumber implements TComparable<TDouble> {
         if (this == other) {
             return true;
         }
-        return other instanceof TDouble && ((TDouble) other).value == value;
+        return other instanceof TDouble && equals(value, ((TDouble) other).value);
+    }
+
+    private static boolean equals(double a, double b) {
+        return PlatformDetector.isJavaScript() ? doubleEqualsJs(a, b) : equalsWithBits(a, b);
+    }
+
+    @InjectedBy(DoubleGenerator.class)
+    private static native boolean doubleEqualsJs(double a, double b);
+
+    private static boolean equalsWithBits(double a, double b) {
+        return a != a ? b != b : doubleToRawLongBits(a) == doubleToRawLongBits(b);
     }
 
     @Override
@@ -234,7 +231,11 @@ public class TDouble extends TNumber implements TComparable<TDouble> {
     }
 
     @NoSideEffects
-    public static native int compare(double a, double b);
+    public static int compare(double a, double b) {
+        var diff = (a > b ? 1 : 0) - (b > a ? 1 : 0);
+        return diff != 0 ? diff : (1 / a > 1 / b ? 1 : 0) - (1 / b > 1 / a ? 1 : 0)
+                + (b == b ? 1 : 0) - (a == a ? 1 : 0);
+    }
 
     @Override
     public int compareTo(TDouble other) {
@@ -255,12 +256,6 @@ public class TDouble extends TNumber implements TComparable<TDouble> {
     @Unmanaged
     public static native boolean isNaN(double v);
 
-    @JSBody(script = "return NaN;")
-    @Import(module = "teavm", name = "teavm_getNaN")
-    @NoSideEffects
-    @Unmanaged
-    private static native double getNaN();
-
     @JSBody(params = "v", script = "return !isFinite(v);")
     @Import(module = "teavm", name = "isinf")
     @NoSideEffects
@@ -273,15 +268,18 @@ public class TDouble extends TNumber implements TComparable<TDouble> {
     @Unmanaged
     public static native boolean isFinite(double v);
 
-    public static long doubleToRawLongBits(double value) {
-        return doubleToLongBits(value);
-    }
-
     @InjectedBy(DoubleGenerator.class)
     @Import(name = "teavm_reinterpretDoubleToLong")
     @NoSideEffects
     @Unmanaged
-    public static native long doubleToLongBits(double value);
+    public static native long doubleToRawLongBits(double value);
+
+    public static long doubleToLongBits(double value) {
+        if (isNaN(value)) {
+            return 0x7ff8000000000000L;
+        }
+        return doubleToRawLongBits(value);
+    }
 
     @InjectedBy(DoubleGenerator.class)
     @Import(name = "teavm_reinterpretLongToDouble")
@@ -299,9 +297,13 @@ public class TDouble extends TNumber implements TComparable<TDouble> {
         int sz = 0;
         long bits = doubleToLongBits(d);
         boolean subNormal = false;
+        boolean negative = (bits & (1L << 63)) != 0;
         int exp = (int) ((bits >>> 52) & 0x7FF) - 1023;
         long mantissa = bits & 0xFFFFFFFFFFFFFL;
         if (exp == -1023) {
+            if (mantissa == 0) {
+                return negative ? "-0x0.0p0" : "0x0.0p0";
+            }
             ++exp;
             subNormal = true;
         }
@@ -320,7 +322,7 @@ public class TDouble extends TNumber implements TComparable<TDouble> {
         buffer[sz++] = subNormal ? '0' : '1';
         buffer[sz++] = 'x';
         buffer[sz++] = '0';
-        if ((bits & (1L << 63)) != 0) {
+        if (negative) {
             buffer[sz++] = '-';
         }
         int half = sz / 2;

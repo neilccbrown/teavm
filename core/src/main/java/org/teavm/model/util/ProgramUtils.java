@@ -18,6 +18,7 @@ package org.teavm.model.util;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import org.teavm.ast.ControlFlowEntry;
@@ -67,6 +68,29 @@ public final class ProgramUtils {
             }
             for (TryCatchBlock tryCatch : block.getTryCatchBlocks()) {
                 graphBuilder.addEdge(i, tryCatch.getHandler().getIndex());
+            }
+        }
+        return graphBuilder.build();
+    }
+
+
+    public static Graph buildControlFlowGraph2(Program program) {
+        var graphBuilder = new GraphBuilder(program.basicBlockCount());
+        TransitionExtractor transitionExtractor = new TransitionExtractor();
+        for (int i = 0; i < program.basicBlockCount(); ++i) {
+            graphBuilder.addEdge(i * 2, i * 2 + 1);
+            BasicBlock block = program.basicBlockAt(i);
+            Instruction insn = block.getLastInstruction();
+            if (insn != null) {
+                insn.acceptVisitor(transitionExtractor);
+                if (transitionExtractor.getTargets() != null) {
+                    for (BasicBlock successor : transitionExtractor.getTargets()) {
+                        graphBuilder.addEdge(i * 2 + 1, successor.getIndex() * 2);
+                    }
+                }
+            }
+            for (TryCatchBlock tryCatch : block.getTryCatchBlocks()) {
+                graphBuilder.addEdge(i * 2, tryCatch.getHandler().getIndex() * 2);
             }
         }
         return graphBuilder.build();
@@ -249,5 +273,47 @@ public final class ProgramUtils {
             }
         }
         return varsDefinedInBlock;
+    }
+
+    public static void truncateBlock(Instruction instruction) {
+        var transitionExtractor = new TransitionExtractor();
+        var block = instruction.getBasicBlock();
+        if (block.getLastInstruction() != null) {
+            block.getLastInstruction().acceptVisitor(transitionExtractor);
+        }
+        for (var successor : transitionExtractor.getTargets()) {
+            successor.removeIncomingsFrom(block);
+        }
+
+        if (!block.getTryCatchBlocks().isEmpty()) {
+            var handlers = new LinkedHashSet<BasicBlock>();
+            for (var tryCatch : block.getTryCatchBlocks()) {
+                handlers.add(tryCatch.getHandler());
+            }
+
+            var next = instruction;
+            var assignExtractor = new AssignmentExtractor();
+            while (next != null) {
+                next.acceptVisitor(assignExtractor);
+                var definition = assignExtractor.getResult();
+                if (definition != null) {
+                    for (var handler : handlers) {
+                        for (var phi : handler.getPhis()) {
+                            for (var iter = phi.getIncomings().iterator(); iter.hasNext();) {
+                                var incoming = iter.next();
+                                if (incoming.getSource() == block && incoming.getValue() == definition) {
+                                    iter.remove();
+                                }
+                            }
+                        }
+                    }
+                }
+                next = next.getNext();
+            }
+        }
+
+        while (instruction.getNext() != null) {
+            instruction.getNext().delete();
+        }
     }
 }

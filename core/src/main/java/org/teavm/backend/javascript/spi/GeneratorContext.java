@@ -24,11 +24,16 @@ import org.teavm.model.ClassReaderSource;
 import org.teavm.model.ListableClassReaderSource;
 import org.teavm.model.MethodReference;
 import org.teavm.model.ValueType;
+import org.teavm.parsing.resource.ResourceProvider;
 
 public interface GeneratorContext extends ServiceRepository {
     String getParameterName(int index);
 
+    String importModule(String name);
+
     ClassReaderSource getInitialClassSource();
+
+    ResourceProvider getResourceProvider();
 
     ListableClassReaderSource getClassSource();
 
@@ -40,15 +45,11 @@ public interface GeneratorContext extends ServiceRepository {
 
     boolean isAsync(MethodReference method);
 
-    boolean isAsyncFamily(MethodReference method);
-
     Diagnostics getDiagnostics();
 
     DependencyInfo getDependency();
 
     void typeToClassString(SourceWriter writer, ValueType type);
-
-    void useLongLibrary();
 
     boolean isDynamicInitializer(String className);
 }

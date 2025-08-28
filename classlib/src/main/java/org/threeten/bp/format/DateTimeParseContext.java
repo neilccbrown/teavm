@@ -57,7 +57,6 @@ import org.threeten.bp.ZoneId;
 import org.threeten.bp.chrono.Chronology;
 import org.threeten.bp.chrono.IsoChronology;
 import org.threeten.bp.format.DateTimeFormatterBuilder.ReducedPrinterParser;
-import org.threeten.bp.jdk8.Jdk8Methods;
 import org.threeten.bp.temporal.TemporalAccessor;
 import org.threeten.bp.temporal.TemporalField;
 import org.threeten.bp.temporal.TemporalQueries;
@@ -71,7 +70,7 @@ import org.threeten.bp.temporal.UnsupportedTemporalTypeException;
  * It has the ability to store and retrieve the parsed values and manage optional segments.
  * It also provides key information to the parsing methods.
  * <p>
- * Once parsing is complete, the {@link #toBuilder()} is typically used
+ * Once parsing is complete, the toBuilder() is typically used
  * to obtain a builder that can combine the separate parsed fields into meaningful values.
  *
  * <h3>Specification for implementors</h3>
@@ -470,7 +469,7 @@ public final class DateTimeParseContext {
                 throw new UnsupportedTemporalTypeException("Unsupported field: " + field);
             }
             long value = fieldValues.get(field);
-            return Jdk8Methods.safeToInt(value);
+            return Math.toIntExact(value);
         }
         @Override
         public long getLong(TemporalField field) {

@@ -17,11 +17,11 @@ package org.teavm.gradle.tasks;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.URLClassLoader;
 import java.rmi.NotBoundException;
 import java.rmi.registry.LocateRegistry;
 import java.util.ArrayList;
 import java.util.Properties;
+import javax.inject.Inject;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.file.ConfigurableFileCollection;
@@ -30,9 +30,12 @@ import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.Classpath;
 import org.gradle.api.tasks.Input;
+import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.TaskAction;
+import org.gradle.internal.logging.progress.ProgressLogger;
+import org.gradle.internal.logging.progress.ProgressLoggerFactory;
 import org.teavm.gradle.api.OptimizationLevel;
 import org.teavm.tooling.TeaVMProblemRenderer;
 import org.teavm.tooling.builder.BuildException;
@@ -43,10 +46,12 @@ import org.teavm.tooling.daemon.BuildDaemon;
 import org.teavm.tooling.daemon.DaemonLog;
 import org.teavm.tooling.daemon.RemoteBuildService;
 import org.teavm.vm.TeaVMOptimizationLevel;
+import org.teavm.vm.TeaVMPhase;
+import org.teavm.vm.TeaVMProgressFeedback;
+import org.teavm.vm.TeaVMProgressListener;
 
 public abstract class TeaVMTask extends DefaultTask {
     public TeaVMTask() {
-        setGroup("TeaVM");
         getDebugInformation().convention(false);
         getTargetFileName().convention("bundle");
         getOptimization().convention(OptimizationLevel.BALANCED);
@@ -98,18 +103,25 @@ public abstract class TeaVMTask extends DefaultTask {
 
     @Classpath
     public abstract ConfigurableFileCollection getDaemonClasspath();
+    
+    @Internal
+    public abstract Property<Integer> getDaemonDebugPort();
+
+    @Inject
+    protected abstract ProgressLoggerFactory getProgressLoggerFactory();
 
     @TaskAction
     public void execute() throws BuildException, IOException, NotBoundException {
         if (getOutOfProcess().get()) {
             executeInSeparateProcess();
         } else {
-            executeWithBuilder(new InProcessBuildStrategy(URLClassLoader::new));
+            executeWithBuilder(new InProcessBuildStrategy());
         }
     }
 
     private void executeInSeparateProcess() throws BuildException, IOException, NotBoundException {
-        var daemon = BuildDaemon.start(false, getProcessMemory().get(), new DaemonLogImpl(),
+        var debugPort = getDaemonDebugPort().isPresent() ? getDaemonDebugPort().get() : 0;
+        var daemon = BuildDaemon.start(debugPort, false, getProcessMemory().get(), new DaemonLogImpl(),
                 createDaemonClassPath());
 
         try {
@@ -145,6 +157,7 @@ public abstract class TeaVMTask extends DefaultTask {
             }
             builder.setProperties(properties);
         }
+        builder.setProgressListener(createProgressListener());
         setupBuilder(builder);
         var result = builder.build();
         TeaVMProblemRenderer.describeProblems(result.getCallGraph(), result.getProblems(), toolLog);
@@ -152,6 +165,57 @@ public abstract class TeaVMTask extends DefaultTask {
             throw new GradleException("Errors occurred during TeaVM build");
         }
     }
+
+    private TeaVMProgressListener createProgressListener() {
+        return new TeaVMProgressListener() {
+            private ProgressLogger currentLogger;
+            private TeaVMPhase phase;
+            private int phaseLimit;
+
+            @Override
+            public TeaVMProgressFeedback phaseStarted(TeaVMPhase phase, int count) {
+                this.phase = phase;
+                this.phaseLimit = count;
+                if (currentLogger != null) {
+                    currentLogger.completed();
+                    currentLogger = null;
+                }
+                switch (phase) {
+                    case DEPENDENCY_ANALYSIS:
+                        currentLogger = getProgressLoggerFactory().newOperation(getClass());
+                        currentLogger.start("Dependency analysis", getName());
+                        break;
+                    case COMPILING:
+                        currentLogger = getProgressLoggerFactory().newOperation(getClass());
+                        currentLogger.start("Compilation", getName());
+                        break;
+                }
+                return TeaVMProgressFeedback.CONTINUE;
+            }
+
+            @Override
+            public TeaVMProgressFeedback progressReached(int progress) {
+                switch (phase) {
+                    case DEPENDENCY_ANALYSIS:
+                        if (phaseLimit == 0) {
+                            currentLogger.progress(progress + " classes reached");
+                        } else {
+                            currentLogger.progress(showPercent(progress) + " %");
+                        }
+                        break;
+                    case COMPILING:
+                        currentLogger.progress(showPercent(progress) + " %");
+                        break;
+                }
+                return TeaVMProgressFeedback.CONTINUE;
+            }
+
+            private int showPercent(int value) {
+                return Math.min(100, (value * 1000 / phaseLimit + 5) / 10);
+            }
+        };
+    }
+
 
     private static TeaVMOptimizationLevel map(OptimizationLevel level) {
         switch (level) {

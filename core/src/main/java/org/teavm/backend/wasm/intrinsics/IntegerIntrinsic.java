@@ -16,13 +16,20 @@
 package org.teavm.backend.wasm.intrinsics;
 
 import org.teavm.ast.InvocationExpr;
+import org.teavm.backend.wasm.WasmRuntime;
+import org.teavm.backend.wasm.model.expression.WasmCall;
 import org.teavm.backend.wasm.model.expression.WasmExpression;
 import org.teavm.backend.wasm.model.expression.WasmIntBinary;
 import org.teavm.backend.wasm.model.expression.WasmIntBinaryOperation;
 import org.teavm.backend.wasm.model.expression.WasmIntType;
+import org.teavm.backend.wasm.model.expression.WasmIntUnary;
+import org.teavm.backend.wasm.model.expression.WasmIntUnaryOperation;
 import org.teavm.model.MethodReference;
 
 public class IntegerIntrinsic implements WasmIntrinsic {
+    private static final MethodReference COMPARE_UNSIGNED = new MethodReference(WasmRuntime.class,
+            "compareUnsigned", int.class, int.class, int.class);
+
     @Override
     public boolean isApplicable(MethodReference methodReference) {
         if (!methodReference.getClassName().equals(Integer.class.getName())) {
@@ -32,6 +39,10 @@ public class IntegerIntrinsic implements WasmIntrinsic {
         switch (methodReference.getName()) {
             case "divideUnsigned":
             case "remainderUnsigned":
+            case "compareUnsigned":
+            case "numberOfLeadingZeros":
+            case "numberOfTrailingZeros":
+            case "bitCount":
                 return true;
             default:
                 return false;
@@ -49,6 +60,19 @@ public class IntegerIntrinsic implements WasmIntrinsic {
                 return new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.REM_UNSIGNED,
                         manager.generate(invocation.getArguments().get(0)),
                         manager.generate(invocation.getArguments().get(1)));
+            case "compareUnsigned":
+                return new WasmCall(manager.getFunctions().forStaticMethod(COMPARE_UNSIGNED),
+                        manager.generate(invocation.getArguments().get(0)),
+                        manager.generate(invocation.getArguments().get(1)));
+            case "numberOfLeadingZeros":
+                return new WasmIntUnary(WasmIntType.INT32, WasmIntUnaryOperation.CLZ,
+                        manager.generate(invocation.getArguments().get(0)));
+            case "numberOfTrailingZeros":
+                return new WasmIntUnary(WasmIntType.INT32, WasmIntUnaryOperation.CTZ,
+                        manager.generate(invocation.getArguments().get(0)));
+            case "bitCount":
+                return new WasmIntUnary(WasmIntType.INT32, WasmIntUnaryOperation.POPCNT,
+                        manager.generate(invocation.getArguments().get(0)));
             default:
                 throw new AssertionError();
         }

@@ -16,6 +16,7 @@
 package org.teavm.backend.wasm.model.expression;
 
 import java.util.Objects;
+import java.util.Set;
 
 public class WasmBreak extends WasmExpression {
     private WasmBlock target;
@@ -46,5 +47,10 @@ public class WasmBreak extends WasmExpression {
     @Override
     public void acceptVisitor(WasmExpressionVisitor visitor) {
         visitor.visit(this);
+    }
+
+    @Override
+    protected boolean isTerminating(Set<WasmBlock> blocks) {
+        return !blocks.contains(target);
     }
 }

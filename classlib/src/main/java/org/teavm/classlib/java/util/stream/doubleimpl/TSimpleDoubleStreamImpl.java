@@ -31,6 +31,7 @@ import java.util.function.DoubleToLongFunction;
 import java.util.function.DoubleUnaryOperator;
 import java.util.function.ObjDoubleConsumer;
 import java.util.function.Supplier;
+import org.teavm.classlib.java.util.TDoubleSummaryStatistics;
 import org.teavm.classlib.java.util.stream.TDoubleStream;
 import org.teavm.classlib.java.util.stream.TIntStream;
 import org.teavm.classlib.java.util.stream.TLongStream;
@@ -87,6 +88,16 @@ public abstract class TSimpleDoubleStreamImpl implements TDoubleStream {
     @Override
     public TDoubleStream limit(long maxSize) {
         return new TLimitingDoubleStreamImpl(this, (int) maxSize);
+    }
+
+    @Override
+    public TDoubleStream takeWhile(DoublePredicate predicate) {
+        return new TTakeWhileDoubleStream(this, predicate);
+    }
+
+    @Override
+    public TDoubleStream dropWhile(DoublePredicate predicate) {
+        return new TDropWhileDoubleStream(this, predicate);
     }
 
     @Override
@@ -209,6 +220,15 @@ public abstract class TSimpleDoubleStreamImpl implements TDoubleStream {
     }
 
     @Override
+    public TDoubleSummaryStatistics summaryStatistics() {
+        TSummaryDoubleConsumer consumer = new TSummaryDoubleConsumer();
+        while (next(consumer)) {
+            // go on
+        }
+        return consumer.stat;
+    }
+
+    @Override
     public boolean anyMatch(DoublePredicate predicate) {
         TAnyMatchConsumer consumer = new TAnyMatchConsumer(predicate);
         while (!consumer.matched && next(consumer)) {
@@ -286,7 +306,7 @@ public abstract class TSimpleDoubleStreamImpl implements TDoubleStream {
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() {
     }
 
     protected int estimateSize() {

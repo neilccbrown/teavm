@@ -35,6 +35,8 @@ public class ShadowStackIntrinsic implements WasmIntrinsic {
             case "getStackRootPointer":
             case "getCallSiteId":
             case "setExceptionHandlerId":
+            case "setExceptionHandlerSkip":
+            case "setExceptionHandlerRestore":
                 return true;
             default:
                 return false;
@@ -47,7 +49,7 @@ public class ShadowStackIntrinsic implements WasmIntrinsic {
         MethodReference method = new MethodReference(WasmRuntime.class.getName(),
                 invocation.getMethod().getDescriptor());
         expr.setMethod(method);
-        expr.setType(InvocationType.SPECIAL);
+        expr.setType(InvocationType.STATIC);
         expr.getArguments().addAll(invocation.getArguments());
         return manager.generate(expr);
     }

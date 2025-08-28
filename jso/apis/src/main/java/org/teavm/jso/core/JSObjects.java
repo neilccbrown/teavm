@@ -25,7 +25,15 @@ public final class JSObjects {
 
     @JSBody(params = "object", script = "return Object.getOwnPropertyNames(object);")
     @NoSideEffects
-    public static native String[] getOwnPropertyNames(JSObject object);
+    public static native String[] getOwnPropertyNames(Object object);
+
+    @JSBody(params = "object", script = "return Object.keys(object);")
+    @NoSideEffects
+    public static native String[] keys(Object object);
+
+    @JSBody(params = "object", script = "return Object.values(object);")
+    @NoSideEffects
+    public static native JSObject[] values(JSObject object);
 
     @JSBody(script = "return {};")
     @NoSideEffects
@@ -35,22 +43,27 @@ public final class JSObjects {
     @NoSideEffects
     public static native <T extends JSObject> T createWithoutProto();
 
-    @JSBody(params = "object", script = "return typeof object === 'undefined';")
-    @NoSideEffects
-    public static native boolean isUndefined(JSObject object);
+    public static boolean isUndefined(Object object) {
+        return object instanceof JSUndefined;
+    }
 
-    @JSBody(script = "return void 0;")
-    @NoSideEffects
-    public static native JSObject undefined();
+    @Deprecated
+    public static JSObject undefined() {
+        return JSUndefined.instance();
+    }
 
     @JSBody(params = "object", script = "return typeof object;")
     @NoSideEffects
-    public static native String typeOf(JSObject object);
+    public static native String typeOf(Object object);
 
     @JSBody(params = "object", script = "return object.toString();")
-    public static native String toString(JSObject object);
+    public static native String toString(Object object);
 
     @JSBody(params = { "object", "name" }, script = "return name in object;")
     @NoSideEffects
-    public static native boolean hasProperty(JSObject object, String name);
+    public static native boolean hasProperty(Object object, String name);
+
+    @JSBody(params = "object", script = "return Object.getPrototypeOf(object);")
+    @NoSideEffects
+    public static native JSObject getPrototypeOf(Object object);
 }

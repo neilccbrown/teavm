@@ -16,10 +16,12 @@
 package org.teavm.model.optimization;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
-import org.teavm.common.OptionalPredicate;
 import org.teavm.dependency.DependencyInfo;
 import org.teavm.dependency.MethodDependencyInfo;
 import org.teavm.dependency.ValueDependencyInfo;
@@ -31,7 +33,6 @@ import org.teavm.model.MethodHolder;
 import org.teavm.model.MethodReference;
 import org.teavm.model.Program;
 import org.teavm.model.ValueType;
-import org.teavm.model.instructions.AssignInstruction;
 import org.teavm.model.instructions.CastInstruction;
 import org.teavm.model.instructions.InvocationType;
 import org.teavm.model.instructions.InvokeInstruction;
@@ -42,6 +43,9 @@ public class Devirtualization {
     private ClassHierarchy hierarchy;
     private Set<MethodReference> virtualMethods = new HashSet<>();
     private Set<? extends MethodReference> readonlyVirtualMethods = Collections.unmodifiableSet(virtualMethods);
+    private Map<ValueDependencyInfo, Map<MethodReference, Set<MethodReference>>> implementationCache =
+            new HashMap<>();
+    private Map<ValueDependencyInfo, Map<ValueType, Optional<ValueType>>> castCache = new HashMap<>();
     private int virtualCallSites;
     private int directCallSites;
     private int remainingCasts;
@@ -83,7 +87,7 @@ public class Devirtualization {
             BasicBlock block = program.basicBlockAt(i);
             for (Instruction insn : block) {
                 if (insn instanceof InvokeInstruction) {
-                    applyToInvoke(methodDep, (InvokeInstruction) insn);
+                    applyToInvoke(methodDep, program, (InvokeInstruction) insn);
                 } else if (insn instanceof CastInstruction) {
                     applyToCast(methodDep, (CastInstruction) insn);
                 }
@@ -95,13 +99,12 @@ public class Devirtualization {
         }
     }
 
-    private void applyToInvoke(MethodDependencyInfo methodDep, InvokeInstruction invoke) {
+    private void applyToInvoke(MethodDependencyInfo methodDep, Program program, InvokeInstruction invoke) {
         if (invoke.getType() != InvocationType.VIRTUAL) {
             return;
         }
         ValueDependencyInfo var = methodDep.getVariable(invoke.getInstance().getIndex());
-        Set<MethodReference> implementations = getImplementations(var.getTypes(),
-                invoke.getMethod());
+        Set<MethodReference> implementations = getImplementations(var, invoke.getMethod());
         if (implementations.size() == 1) {
             MethodReference resolvedImplementaiton = implementations.iterator().next();
             if (shouldLog) {
@@ -112,6 +115,16 @@ public class Devirtualization {
                             + invoke.getLocation().getLine());
                 }
                 System.out.println();
+            }
+            if (!resolvedImplementaiton.getClassName().equals(invoke.getMethod().getClassName())) {
+                var cast = new CastInstruction();
+                cast.setValue(invoke.getInstance());
+                cast.setTargetType(ValueType.object(resolvedImplementaiton.getClassName()));
+                cast.setWeak(true);
+                cast.setReceiver(program.createVariable());
+                cast.setLocation(invoke.getLocation());
+                invoke.insertPrevious(cast);
+                invoke.setInstance(cast.getReceiver());
             }
             invoke.setType(InvocationType.SPECIAL);
             invoke.setMethod(resolvedImplementaiton);
@@ -144,16 +157,9 @@ public class Devirtualization {
         if (var == null) {
             return;
         }
-        boolean canFail = false;
-        String failType = null;
-        for (String type : var.getTypes()) {
-            if (castCanFail(type, cast.getTargetType())) {
-                failType = type;
-                canFail = true;
-            }
-        }
+        var failType = getCastFailType(var, cast.getTargetType());
 
-        if (canFail) {
+        if (failType != null) {
             if (shouldLog) {
                 System.out.print("REMAINING CAST to " + cast.getTargetType() + " (example is " + failType + ")");
                 if (cast.getLocation() != null) {
@@ -172,44 +178,66 @@ public class Devirtualization {
                 }
                 System.out.println();
             }
-            AssignInstruction assign = new AssignInstruction();
-            assign.setAssignee(cast.getValue());
-            assign.setReceiver(cast.getReceiver());
-            assign.setLocation(cast.getLocation());
-            cast.replace(assign);
+            cast.setWeak(true);
             eliminatedCasts++;
         }
     }
 
-    private boolean castCanFail(String type, ValueType target) {
-        if (type.startsWith("[")) {
-            ValueType valueType = ValueType.parse(type);
-            if (hierarchy.isSuperType(target, valueType, false)) {
-                return false;
-            }
-        } else if (target instanceof ValueType.Object) {
-            String targetClassName = ((ValueType.Object) target).getClassName();
-            if (hierarchy.isSuperType(targetClassName, type, false)) {
-                return false;
-            }
+    private ValueType getCastFailType(ValueDependencyInfo node, ValueType targetType) {
+        if (dependency.isPrecise()) {
+            return computeCastFailType(node, targetType);
+        } else {
+            var byType = castCache.computeIfAbsent(node, n -> new HashMap<>());
+            return byType.computeIfAbsent(targetType, t -> Optional.ofNullable(computeCastFailType(node, t)))
+                    .orElse(null);
         }
-        return true;
     }
 
-    private Set<MethodReference> getImplementations(String[] classNames, MethodReference ref) {
-        return implementations(hierarchy, dependency, classNames, ref);
+    private ValueType computeCastFailType(ValueDependencyInfo node, ValueType targetType) {
+        for (var type : node.getTypes()) {
+            if (castCanFail(type, targetType)) {
+                return type;
+            }
+        }
+        return null;
+    }
+
+    private boolean castCanFail(ValueType type, ValueType target) {
+        return !hierarchy.isSuperType(target, type, false);
+    }
+
+    private Set<MethodReference> getImplementations(ValueDependencyInfo value, MethodReference ref) {
+        if (dependency.isPrecise()) {
+            return implementations(hierarchy, dependency, value.getTypes(), ref);
+        } else {
+            var map = implementationCache.computeIfAbsent(value, v -> new HashMap<>());
+            return map.computeIfAbsent(ref, m -> implementations(hierarchy, dependency, value.getTypes(), m));
+        }
     }
 
     public static Set<MethodReference> implementations(ClassHierarchy hierarchy, DependencyInfo dependency,
-            String[] classNames, MethodReference ref) {
-        OptionalPredicate<String> isSuperclass = hierarchy.getSuperclassPredicate(ref.getClassName());
+            ValueType[] types, MethodReference ref) {
+        var isSuperclass = hierarchy.getSuperclassPredicate(ref.getClassName());
         Set<MethodReference> methods = new LinkedHashSet<>();
-        for (String className : classNames) {
-            if (className.startsWith("[")) {
+        var arrayEncountered = false;
+        for (var type : types) {
+            String className;
+            if (type instanceof ValueType.Array) {
+                if (arrayEncountered) {
+                    continue;
+                }
+                arrayEncountered = true;
                 className = "java.lang.Object";
+            } else if (type instanceof ValueType.Object) {
+                className = ((ValueType.Object) type).getClassName();
+            } else {
+                continue;
+            }
+            if (!isSuperclass.test(ValueType.object(className), false)) {
+                continue;
             }
             ClassReader cls = hierarchy.getClassSource().get(className);
-            if (cls == null || !isSuperclass.test(cls.getName(), false)) {
+            if (cls == null) {
                 continue;
             }
             MethodDependencyInfo methodDep = dependency.getMethodImplementation(new MethodReference(

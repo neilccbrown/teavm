@@ -1,3 +1,5 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+
 /*
  *  Copyright 2023 Alexey Andreev.
  *
@@ -22,14 +24,13 @@ plugins {
 description = "Java class library emulation"
 
 dependencies {
-    compileOnly(project(":core"))
+    implementation(project(":core"))
 
     api(project(":platform"))
     api(project(":jso:apis"))
     api(project(":jso:impl"))
     api(project(":metaprogramming:impl"))
     api(libs.commons.io)
-    api(libs.gson)
     api(libs.jzlib)
     api(libs.jodaTime)
 
@@ -38,18 +39,29 @@ dependencies {
 }
 
 tasks {
-    val generatedClassesDir = File(buildDir, "generated/classes/java/main")
+    val generatedClassesDir = layout.buildDirectory.dir("generated/classes/java/main")
     val generateTzCache by registering(JavaExec::class) {
-        val outputFile = File(generatedClassesDir, "org/teavm/classlib/impl/tz/cache")
+        val outputFile = generatedClassesDir.map { it.dir( "org/teavm/classlib/impl/tz/cache") }
         classpath(sourceSets.main.get().runtimeClasspath, sourceSets.main.get().compileClasspath)
         outputs.file(outputFile)
         inputs.files(sourceSets.main.get().runtimeClasspath)
         dependsOn(compileJava)
-        mainClass.set("org.teavm.classlib.impl.tz.TimeZoneCache")
-        args(outputFile.absolutePath)
+        mainClass = "org.teavm.classlib.impl.tz.TimeZoneCache"
+        args(outputFile.get().asFile.absolutePath)
+    }
+    val generateIso4217 by registering(JavaExec::class) {
+        val outputFile = generatedClassesDir.map { it.file("org/teavm/classlib/impl/currency/iso4217.bin") }
+        val inputFile = layout.projectDirectory.file("src/main/data/iso4217.xml")
+        classpath(sourceSets.main.get().runtimeClasspath, sourceSets.main.get().compileClasspath)
+        outputs.file(outputFile)
+        inputs.files(sourceSets.main.get().runtimeClasspath)
+        inputs.file(inputFile)
+        dependsOn(compileJava)
+        mainClass = "org.teavm.classlib.impl.currency.CurrenciesGenerator"
+        args(inputFile.asFile.absolutePath, outputFile.get().asFile.absolutePath)
     }
     jar {
-        dependsOn(generateTzCache)
+        dependsOn(generateTzCache, generateIso4217)
         from(generatedClassesDir)
         exclude("html/**")
         exclude("org/teavm/classlib/impl/tz/tzdata*.zip")
@@ -60,8 +72,15 @@ tasks {
         exclude("**/iso*.xml")
         exclude("**/iso*.csv")
     }
+    withType<ShadowJar> {
+        dependsOn(generateTzCache, generateIso4217)
+        from(generatedClassesDir)
+        exclude("html/**")
+        exclude("org/teavm/classlib/impl/tz/tzdata*.zip")
+    }
 }
 
 teavmPublish {
     artifactId = "teavm-classlib"
 }
+

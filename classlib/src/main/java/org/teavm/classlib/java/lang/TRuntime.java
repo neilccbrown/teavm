@@ -16,6 +16,9 @@
 package org.teavm.classlib.java.lang;
 
 import org.teavm.interop.DelegateTo;
+import org.teavm.interop.Platforms;
+import org.teavm.interop.SupportedOn;
+import org.teavm.jso.browser.Navigator;
 import org.teavm.runtime.GC;
 
 /**
@@ -55,7 +58,7 @@ public class TRuntime {
      * its best effort to recycle all discarded objects. The name gc stands for
      * "garbage collector". The Java Virtual Machine performs this recycling
      * process automatically as needed even if the gc method is not invoked
-     * explicitly. The method System.gc() is the conventional and convenient
+     * explicitly. The method System.js.gc() is the conventional and convenient
      * means of invoking this method.
      */
     public void gc() {
@@ -84,5 +87,33 @@ public class TRuntime {
 
     private long totalMemoryLowLevel() {
         return GC.availableBytes();
+    }
+
+    @SupportedOn({Platforms.JAVASCRIPT, Platforms.WEBASSEMBLY_GC})
+    public int availableProcessors() {
+        return Navigator.hardwareConcurrency();
+    }
+
+    public static Version version() {
+        if (version == null) {
+            version = new Version();
+        }
+        return version;
+    }
+
+    private static Version version;
+
+    public static final class Version implements Comparable<Version> {
+        private Version() {
+        }
+
+        public int feature() {
+            return 21;
+        }
+
+        @Override
+        public int compareTo(Version o) {
+            return 0;
+        }
     }
 }

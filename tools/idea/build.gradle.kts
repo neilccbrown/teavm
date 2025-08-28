@@ -19,31 +19,42 @@ plugins {
     alias(libs.plugins.intellij)
 }
 
-intellij {
-    version.set(libs.versions.idea.asProvider().get())
-    type.set("IC")
-    updateSinceUntilBuild.set(false)
+javaVersion {
+    version = JavaVersion.VERSION_17
+}
 
-    plugins.set(listOf(
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+intellij {
+    version = libs.versions.idea.asProvider().get()
+    type = "IC"
+    updateSinceUntilBuild = false
+
+    plugins = listOf(
             "java",
             "org.intellij.scala:${libs.versions.idea.scala.get()}",
             "org.jetbrains.kotlin"
-    ))
+    )
 }
 
 dependencies {
-    implementation(project(path = ":tools:ide-deps", configuration = "shadow").setTransitive(false))
+    compileOnly(project(":tools:ide-deps"))
+    runtimeOnly(project(path = ":tools:ide-deps", configuration = "shadow").setTransitive(false))
 }
 
 tasks {
     instrumentedJar {
-        archiveFileName.set("teavm-plugin.jar")
+        archiveFileName = "teavm-plugin.jar"
     }
     buildSearchableOptions {
         enabled = false
     }
 
     publishPlugin {
-        token.set(providers.gradleProperty("teavm.idea.publishToken"))
+        token = providers.gradleProperty("teavm.idea.publishToken")
     }
 }

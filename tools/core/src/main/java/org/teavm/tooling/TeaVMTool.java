@@ -36,9 +36,14 @@ import org.teavm.backend.c.CTarget;
 import org.teavm.backend.c.generate.CNameProvider;
 import org.teavm.backend.c.generate.ShorteningFileNameProvider;
 import org.teavm.backend.c.generate.SimpleFileNameProvider;
+import org.teavm.backend.javascript.JSModuleType;
 import org.teavm.backend.javascript.JavaScriptTarget;
+import org.teavm.backend.wasm.WasmDebugInfoLevel;
+import org.teavm.backend.wasm.WasmDebugInfoLocation;
+import org.teavm.backend.wasm.WasmGCTarget;
 import org.teavm.backend.wasm.WasmRuntimeType;
 import org.teavm.backend.wasm.WasmTarget;
+import org.teavm.backend.wasm.debug.sourcemap.SourceMapBuilder;
 import org.teavm.backend.wasm.render.WasmBinaryVersion;
 import org.teavm.cache.AlwaysStaleCacheStatus;
 import org.teavm.cache.CacheStatus;
@@ -49,6 +54,7 @@ import org.teavm.cache.EmptyProgramCache;
 import org.teavm.cache.FileSymbolTable;
 import org.teavm.debugging.information.DebugInformation;
 import org.teavm.debugging.information.DebugInformationBuilder;
+import org.teavm.debugging.information.SourceMapsWriter;
 import org.teavm.dependency.DependencyInfo;
 import org.teavm.dependency.FastDependencyAnalyzer;
 import org.teavm.dependency.PreciseDependencyAnalyzer;
@@ -60,8 +66,10 @@ import org.teavm.model.PreOptimizingClassHolderSource;
 import org.teavm.model.ReferenceCache;
 import org.teavm.model.transformation.AssertionRemoval;
 import org.teavm.parsing.ClasspathClassHolderSource;
+import org.teavm.parsing.ClasspathResourceProvider;
+import org.teavm.parsing.resource.ResourceProvider;
+import org.teavm.tooling.sources.DefaultSourceFileResolver;
 import org.teavm.tooling.sources.SourceFileProvider;
-import org.teavm.tooling.sources.SourceFilesCopier;
 import org.teavm.vm.BuildTarget;
 import org.teavm.vm.DirectoryBuildTarget;
 import org.teavm.vm.TeaVM;
@@ -75,20 +83,22 @@ public class TeaVMTool {
     private TeaVMTargetType targetType = TeaVMTargetType.JAVASCRIPT;
     private String targetFileName = "";
     private boolean obfuscated = true;
+    private JSModuleType jsModuleType = JSModuleType.UMD;
     private boolean strict;
-    private int maxTopLevelNames = 10000;
+    private int maxTopLevelNames = 80_000;
     private String mainClass;
     private String entryPointName = "main";
     private Properties properties = new Properties();
     private boolean debugInformationGenerated;
     private boolean sourceMapsFileGenerated;
-    private boolean sourceFilesCopied;
+    private TeaVMSourceFilePolicy sourceFilePolicy = TeaVMSourceFilePolicy.DO_NOTHING;
     private boolean incremental;
     private File cacheDirectory = new File("./teavm-cache");
     private List<String> transformers = new ArrayList<>();
     private List<String> classesToPreserve = new ArrayList<>();
     private TeaVMToolLog log = new EmptyTeaVMToolLog();
     private ClassLoader classLoader = TeaVMTool.class.getClassLoader();
+    private List<File> classPath;
     private DiskCachedClassReaderSource cachedClassSource;
     private DiskProgramCache programCache;
     private DiskMethodNodeCache astCache;
@@ -105,15 +115,21 @@ public class TeaVMTool {
     private JavaScriptTarget javaScriptTarget;
     private WasmTarget webAssemblyTarget;
     private WasmBinaryVersion wasmVersion = WasmBinaryVersion.V_0x1;
+    private WasmDebugInfoLocation wasmDebugInfoLocation = WasmDebugInfoLocation.EXTERNAL;
+    private WasmDebugInfoLevel wasmDebugInfoLevel = WasmDebugInfoLevel.DEOBFUSCATION;
+    private boolean wasmExceptionsUsed;
     private CTarget cTarget;
     private Set<File> generatedFiles = new HashSet<>();
     private int minHeapSize = 4 * (1 << 20);
     private int maxHeapSize = 128 * (1 << 20);
+    private int minDirectBuffersSize = 2 * (1 << 20);
+    private int maxDirectBuffersSize = 32 * (1 << 20);
+    private boolean importedWasmMemory;
     private ReferenceCache referenceCache;
-    private boolean longjmpSupported = true;
     private boolean heapDump;
     private boolean shortFileNames;
     private boolean assertionsRemoved;
+    private SourceMapBuilder wasmSourceMapWriter;
 
     private BuildTarget buildTarget;
     
@@ -143,6 +159,10 @@ public class TeaVMTool {
 
     public void setObfuscated(boolean obfuscated) {
         this.obfuscated = obfuscated;
+    }
+
+    public void setJsModuleType(JSModuleType jsModuleType) {
+        this.jsModuleType = jsModuleType;
     }
 
     public void setStrict(boolean strict) {
@@ -197,12 +217,23 @@ public class TeaVMTool {
         this.sourceMapsFileGenerated = sourceMapsFileGenerated;
     }
 
+    @Deprecated
     public boolean isSourceFilesCopied() {
-        return sourceFilesCopied;
+        return sourceFilePolicy == TeaVMSourceFilePolicy.COPY;
     }
 
+    @Deprecated
     public void setSourceFilesCopied(boolean sourceFilesCopied) {
-        this.sourceFilesCopied = sourceFilesCopied;
+        if (isSourceFilesCopied() == sourceFilesCopied) {
+            return;
+        }
+        sourceFilePolicy = sourceFilesCopied
+                ? TeaVMSourceFilePolicy.COPY
+                : TeaVMSourceFilePolicy.DO_NOTHING;
+    }
+
+    public void setSourceFilePolicy(TeaVMSourceFilePolicy sourceFilePolicy) {
+        this.sourceFilePolicy = sourceFilePolicy;
     }
 
     public Properties getProperties() {
@@ -257,12 +288,28 @@ public class TeaVMTool {
         this.maxHeapSize = maxHeapSize;
     }
 
+    public void setMinDirectBuffersSize(int minDirectBuffersSize) {
+        this.minDirectBuffersSize = minDirectBuffersSize;
+    }
+
+    public void setMaxDirectBuffersSize(int maxDirectBuffersSize) {
+        this.maxDirectBuffersSize = maxDirectBuffersSize;
+    }
+
+    public void setImportedWasmMemory(boolean importedWasmMemory) {
+        this.importedWasmMemory = importedWasmMemory;
+    }
+
     public ClassLoader getClassLoader() {
         return classLoader;
     }
 
     public void setClassLoader(ClassLoader classLoader) {
         this.classLoader = classLoader;
+    }
+
+    public void setClassPath(List<File> classPath) {
+        this.classPath = classPath;
     }
 
     public WasmBinaryVersion getWasmVersion() {
@@ -273,8 +320,16 @@ public class TeaVMTool {
         this.wasmVersion = wasmVersion;
     }
 
-    public void setLongjmpSupported(boolean longjmpSupported) {
-        this.longjmpSupported = longjmpSupported;
+    public void setWasmExceptionsUsed(boolean wasmExceptionsUsed) {
+        this.wasmExceptionsUsed = wasmExceptionsUsed;
+    }
+
+    public void setWasmDebugInfoLocation(WasmDebugInfoLocation wasmDebugInfoLocation) {
+        this.wasmDebugInfoLocation = wasmDebugInfoLocation;
+    }
+
+    public void setWasmDebugInfoLevel(WasmDebugInfoLevel wasmDebugInfoLevel) {
+        this.wasmDebugInfoLevel = wasmDebugInfoLevel;
     }
 
     public void setHeapDump(boolean heapDump) {
@@ -333,6 +388,8 @@ public class TeaVMTool {
                 return prepareWebAssemblyDefaultTarget();
             case WEBASSEMBLY_WASI:
                 return prepareWebAssemblyWasiTarget();
+            case WEBASSEMBLY_GC:
+                return prepareWebAssemblyGCTarget();
             case C:
                 return prepareCTarget();
         }
@@ -343,11 +400,12 @@ public class TeaVMTool {
         javaScriptTarget = new JavaScriptTarget();
         javaScriptTarget.setObfuscated(obfuscated);
         javaScriptTarget.setStrict(strict);
-        javaScriptTarget.setTopLevelNameLimit(maxTopLevelNames);
+        javaScriptTarget.setMaxTopLevelNames(maxTopLevelNames);
 
         debugEmitter = debugInformationGenerated || sourceMapsFileGenerated
                 ? new DebugInformationBuilder(referenceCache) : null;
         javaScriptTarget.setDebugEmitter(debugEmitter);
+        javaScriptTarget.setModuleType(jsModuleType);
 
         return javaScriptTarget;
     }
@@ -361,6 +419,7 @@ public class TeaVMTool {
         webAssemblyTarget.setMinHeapSize(minHeapSize);
         webAssemblyTarget.setMaxHeapSize(maxHeapSize);
         webAssemblyTarget.setObfuscated(obfuscated);
+        webAssemblyTarget.setExceptionsUsed(wasmExceptionsUsed);
         return webAssemblyTarget;
     }
 
@@ -376,12 +435,29 @@ public class TeaVMTool {
         return target;
     }
 
+    private WasmGCTarget prepareWebAssemblyGCTarget() {
+        var target = new WasmGCTarget();
+        target.setObfuscated(obfuscated);
+        target.setStrict(strict);
+        target.setDebugInfo(debugInformationGenerated);
+        target.setDebugInfoLevel(debugInformationGenerated ? WasmDebugInfoLevel.FULL : wasmDebugInfoLevel);
+        target.setDebugInfoLocation(wasmDebugInfoLocation);
+        target.setBufferHeapMinSize(minDirectBuffersSize);
+        target.setBufferHeapMaxSize(maxDirectBuffersSize);
+        target.setImportedMemory(importedWasmMemory);
+        if (sourceMapsFileGenerated) {
+            wasmSourceMapWriter = new SourceMapBuilder();
+            target.setSourceMapBuilder(wasmSourceMapWriter);
+            target.setSourceMapLocation(getResolvedTargetFileName() + ".map");
+        }
+        return target;
+    }
+
     private CTarget prepareCTarget() {
         cTarget = new CTarget(new CNameProvider());
         cTarget.setMinHeapSize(minHeapSize);
         cTarget.setMaxHeapSize(maxHeapSize);
         cTarget.setLineNumbersGenerated(debugInformationGenerated);
-        cTarget.setLongjmpUsed(longjmpSupported);
         cTarget.setHeapDump(heapDump);
         cTarget.setObfuscated(obfuscated);
         cTarget.setFileNames(shortFileNames
@@ -391,7 +467,7 @@ public class TeaVMTool {
     }
 
     public void generate() throws TeaVMToolException {
-        try {
+        try (var resourceProvider = createResourceProvider()) {
             cancelled = false;
             log.info("Running TeaVM");
             referenceCache = new ReferenceCache();
@@ -403,7 +479,7 @@ public class TeaVMTool {
                 symbolTable = new FileSymbolTable(new File(cacheDirectory, "symbols"));
                 fileTable = new FileSymbolTable(new File(cacheDirectory, "files"));
                 variableTable = new FileSymbolTable(new File(cacheDirectory, "variables"));
-                ClasspathClassHolderSource innerClassSource = new ClasspathClassHolderSource(classLoader,
+                ClasspathClassHolderSource innerClassSource = new ClasspathClassHolderSource(resourceProvider,
                         referenceCache);
                 ClassHolderSource classSource = new PreOptimizingClassHolderSource(innerClassSource);
                 cachedClassSource = new DiskCachedClassReaderSource(cacheDirectory, referenceCache, symbolTable,
@@ -426,10 +502,11 @@ public class TeaVMTool {
                 cacheStatus = cachedClassSource;
             } else {
                 vmBuilder.setClassLoader(classLoader).setClassSource(new PreOptimizingClassHolderSource(
-                        new ClasspathClassHolderSource(classLoader, referenceCache)));
+                        new ClasspathClassHolderSource(resourceProvider, referenceCache)));
                 cacheStatus = AlwaysStaleCacheStatus.INSTANCE;
             }
 
+            vmBuilder.setResourceProvider(resourceProvider);
             vmBuilder.setDependencyAnalyzerFactory(fastDependencyAnalysis
                     ? FastDependencyAnalyzer::new
                     : PreciseDependencyAnalyzer::new);
@@ -459,8 +536,9 @@ public class TeaVMTool {
             for (ClassHolderTransformer transformer : resolveTransformers()) {
                 vm.add(transformer);
             }
-            if (mainClass != null) {
-                vm.entryPoint(mainClass, entryPointName != null ? entryPointName : "main");
+            vm.setEntryPoint(mainClass);
+            if (entryPointName != null) {
+                vm.setEntryPointName(entryPointName);
             }
             for (String className : classesToPreserve) {
                 vm.preserveType(className);
@@ -500,6 +578,8 @@ public class TeaVMTool {
                         additionalJavaScriptOutput(writer);
                     }
                 }
+            } else if (targetType == TeaVMTargetType.WEBASSEMBLY_GC) {
+                additionalWasmGCOutput();
             }
 
             if (incremental) {
@@ -520,6 +600,12 @@ public class TeaVMTool {
         }
     }
 
+    private ResourceProvider createResourceProvider() {
+        return classPath != null
+                ? ResourceProvider.ofClassPath(classPath)
+                : new ClasspathResourceProvider(classLoader);
+    }
+
     private String getResolvedTargetFileName() {
         if (targetFileName.isEmpty()) {
             switch (targetType) {
@@ -527,6 +613,7 @@ public class TeaVMTool {
                     return "classes.js";
                 case WEBASSEMBLY:
                 case WEBASSEMBLY_WASI:
+                case WEBASSEMBLY_GC:
                     return "classes.wasm";
                 case C:
                     return "classes.c";
@@ -556,15 +643,46 @@ public class TeaVMTool {
             File sourceMapsFile = new File(targetDirectory, sourceMapsFileName);
             try (Writer sourceMapsOut = new OutputStreamWriter(new FileOutputStream(sourceMapsFile),
                     StandardCharsets.UTF_8)) {
-                debugInfo.writeAsSourceMaps(sourceMapsOut, "src", getResolvedTargetFileName());
+                writeSourceMaps(sourceMapsOut, debugInfo);
             }
             generatedFiles.add(sourceMapsFile);
             log.info("Source maps successfully written");
         }
-        if (sourceFilesCopied) {
-            copySourceFiles();
-            log.info("Source files successfully written");
+    }
+
+    private void additionalWasmGCOutput() throws IOException {
+        if (sourceMapsFileGenerated) {
+            var targetDir = new File(targetDirectory, "src");
+            var resolver = new DefaultSourceFileResolver(targetDir, sourceFileProviders);
+            resolver.setSourceFilePolicy(sourceFilePolicy);
+            resolver.open();
+
+            if (sourceFilePolicy != TeaVMSourceFilePolicy.DO_NOTHING) {
+                wasmSourceMapWriter.addSourceResolver(resolver);
+            }
+            var file = new File(targetDirectory, getResolvedTargetFileName() + ".map");
+            try (var out = new FileOutputStream(file);
+                    var writer = new OutputStreamWriter(out, StandardCharsets.UTF_8)) {
+                wasmSourceMapWriter.writeSourceMap(writer);
+            }
+
+            resolver.close();
         }
+    }
+
+    private void writeSourceMaps(Writer out, DebugInformation debugInfo) throws IOException {
+        var sourceMapWriter = new SourceMapsWriter(out);
+        var targetDir = new File(targetDirectory, "src");
+        var resolver = new DefaultSourceFileResolver(targetDir, sourceFileProviders);
+        resolver.setSourceFilePolicy(sourceFilePolicy);
+        resolver.open();
+
+        if (sourceFilePolicy != TeaVMSourceFilePolicy.DO_NOTHING) {
+            sourceMapWriter.addSourceResolver(resolver);
+        }
+        sourceMapWriter.write(getResolvedTargetFileName(), "src", debugInfo);
+
+        resolver.close();
     }
 
     private void printStats() {
@@ -581,16 +699,6 @@ public class TeaVMTool {
 
         log.info("Classes compiled: " + classCount);
         log.info("Methods compiled: " + methodCount);
-    }
-
-    private void copySourceFiles() {
-        if (vm.getWrittenClasses() == null) {
-            return;
-        }
-        SourceFilesCopier copier = new SourceFilesCopier(sourceFileProviders, generatedFiles::add);
-        copier.addClasses(vm.getWrittenClasses());
-        copier.setLog(log);
-        copier.copy(new File(targetDirectory, "src"));
     }
 
     private List<ClassHolderTransformer> resolveTransformers() {

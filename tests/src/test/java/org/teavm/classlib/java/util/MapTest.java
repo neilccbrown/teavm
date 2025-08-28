@@ -18,16 +18,19 @@ package org.teavm.classlib.java.util;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.TreeMap;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.teavm.junit.SkipPlatform;
 import org.teavm.junit.TeaVMTestRunner;
-import org.teavm.junit.WholeClassCompilation;
+import org.teavm.junit.TestPlatform;
 
 @RunWith(TeaVMTestRunner.class)
-@WholeClassCompilation
 public class MapTest {
     @Test
     public void of() {
@@ -50,6 +53,25 @@ public class MapTest {
                 Map.ofEntries(Map.entry("q", 0), Map.entry("w", 1), Map.entry("e", 2), Map.entry("r", 3),
                         Map.entry("t", 4), Map.entry("y", 5), Map.entry("u", 6), Map.entry("i", 7), Map.entry("o", 8),
                         Map.entry("p", 9), Map.entry("a", 10)));
+    }
+
+    @Test
+    @SkipPlatform(TestPlatform.C)
+    public void copyOfWorks() {
+        testOf(new String[0], Map.copyOf(new HashMap<>()));
+        testOf(new String[] { "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "a" },
+                Map.copyOf(
+                        Map.ofEntries(Map.entry("q", 0), Map.entry("w", 1), Map.entry("e", 2), Map.entry("r", 3),
+                        Map.entry("t", 4), Map.entry("y", 5), Map.entry("u", 6), Map.entry("i", 7), Map.entry("o", 8),
+                        Map.entry("p", 9), Map.entry("a", 10))));
+    }
+    
+    @Test
+    public void copyOfOptimized() {
+        Map<String, Integer> mapCopy1 = Map.copyOf(Map.of("q", 0, "w", 1, "e", 2));
+        Map<String, Integer> mapCopy2 = Map.copyOf(mapCopy1);
+
+        assertSame("Must not create copies of immutable collections", mapCopy1, mapCopy2);
     }
 
     private void testOf(String[] expected, Map<String, Integer> actual) {
@@ -121,5 +143,16 @@ public class MapTest {
         for (String e : expectedCopy) {
             assertNull("Iterator did not return all of expected elements", e);
         }
+    }
+
+    @Test
+    public void testReplaceAll() {
+        Map<String, Integer> base = Map.of("a", 1, "b", 2);
+        Map<String, Integer> hashMap = new HashMap<>(base);
+        Map<String, Integer> treeMap = new TreeMap<>(base);
+        hashMap.replaceAll((k, v) -> v * 10);
+        treeMap.replaceAll((k, v) -> v * 10);
+        assertEquals(Map.of("a", 10, "b", 20), hashMap);
+        assertEquals(Map.of("a", 10, "b", 20), treeMap);
     }
 }

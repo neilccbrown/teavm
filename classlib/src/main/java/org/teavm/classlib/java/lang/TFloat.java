@@ -15,6 +15,7 @@
  */
 package org.teavm.classlib.java.lang;
 
+import org.teavm.classlib.impl.text.FloatSynthesizer;
 import org.teavm.interop.Import;
 import org.teavm.interop.NoSideEffects;
 import org.teavm.interop.Unmanaged;
@@ -23,15 +24,16 @@ import org.teavm.jso.JSBody;
 public class TFloat extends TNumber implements TComparable<TFloat> {
     public static final float POSITIVE_INFINITY = 1 / 0.0f;
     public static final float NEGATIVE_INFINITY = -POSITIVE_INFINITY;
-    public static final float NaN = getNaN();
+    public static final float NaN = 0f / 0f;
     public static final float MAX_VALUE = 0x1.fffffeP+127f;
     public static final float MIN_VALUE = 0x1.0p-126f;
     public static final float MIN_NORMAL = 0x0.000002P-126f;
     public static final int MAX_EXPONENT = 127;
     public static final int MIN_EXPONENT = -126;
     public static final int SIZE = 32;
+    public static final int BYTES = SIZE / Byte.SIZE;
     public static final Class<Float> TYPE = float.class;
-    private float value;
+    private final float value;
 
     public TFloat(float value) {
         this.value = value;
@@ -41,7 +43,7 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
         this((float) value);
     }
 
-    public TFloat(TString value) throws TNumberFormatException {
+    public TFloat(String value) throws TNumberFormatException {
         this(parseFloat(value));
     }
 
@@ -83,7 +85,11 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
         if (this == other) {
             return true;
         }
-        return other instanceof TFloat && ((TFloat) other).value == value;
+        return other instanceof TFloat && equals(value, ((TFloat) other).value);
+    }
+
+    private static boolean equals(float a, float b) {
+        return a != a ? b != b : floatToRawIntBits(a) == floatToRawIntBits(b);
     }
 
     @Override
@@ -113,26 +119,24 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
     @Unmanaged
     public static native boolean isFinite(float v);
 
-    @JSBody(script = "return NaN;")
-    @Import(module = "teavm", name = "teavm_getNaN")
-    @NoSideEffects
-    @Unmanaged
-    private static native float getNaN();
-
-    public static float parseFloat(TString string) throws TNumberFormatException {
+    public static float parseFloat(String string) throws NumberFormatException {
         // TODO: parse infinite and different radix
 
         if (string.isEmpty()) {
-            throw new TNumberFormatException();
+            throw new NumberFormatException();
         }
         int start = 0;
         int end = string.length();
         while (string.charAt(start) <= ' ') {
             if (++start == end) {
-                throw new TNumberFormatException();
+                throw new NumberFormatException();
             }
         }
         while (string.charAt(end - 1) <= ' ') {
+            --end;
+        }
+        if (string.charAt(end - 1) == 'f' || string.charAt(end - 1) == 'F'
+                || string.charAt(end - 1) == 'd' || string.charAt(end - 1) == 'D') {
             --end;
         }
 
@@ -145,18 +149,19 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
             ++index;
         }
         if (index == end) {
-            throw new TNumberFormatException();
+            throw new NumberFormatException();
         }
         char c = string.charAt(index);
 
         int mantissa = 0;
-        int exp = 0;
+        int exp = -1;
+        int mantissaPos = 100000000;
 
         boolean hasOneDigit = false;
         if (c != '.') {
             hasOneDigit = true;
             if (c < '0' || c > '9') {
-                throw new TNumberFormatException();
+                throw new NumberFormatException();
             }
 
             while (index < end && string.charAt(index) == '0') {
@@ -167,11 +172,11 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
                 if (c < '0' || c > '9') {
                     break;
                 }
-                if (mantissa < (TInteger.MAX_VALUE / 10) - 9) {
-                    mantissa = mantissa * 10 + (c - '0');
-                } else {
-                    ++exp;
+                if (mantissaPos > 0) {
+                    mantissa = mantissa + (mantissaPos * (c - '0'));
+                    mantissaPos = Integer.divideUnsigned(mantissaPos, 10);
                 }
+                ++exp;
                 ++index;
             }
         }
@@ -183,26 +188,28 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
                 if (c < '0' || c > '9') {
                     break;
                 }
-                if (mantissa < (TInteger.MAX_VALUE / 10) - 9) {
-                    mantissa = mantissa * 10 + (c - '0');
-                    --exp;
+                if (mantissa == 0 && c == '0') {
+                    exp--;
+                } else if (mantissaPos > 0) {
+                    mantissa = mantissa + (mantissaPos * (c - '0'));
+                    mantissaPos = Integer.divideUnsigned(mantissaPos, 10);
                 }
                 ++index;
                 hasOneDigit = true;
             }
             if (!hasOneDigit) {
-                throw new TNumberFormatException();
+                throw new NumberFormatException();
             }
         }
         if (index < end) {
             c = string.charAt(index);
             if (c != 'e' && c != 'E') {
-                throw new TNumberFormatException();
+                throw new NumberFormatException();
             }
             ++index;
             boolean negativeExp = false;
             if (index == end) {
-                throw new TNumberFormatException();
+                throw new NumberFormatException();
             }
             if (string.charAt(index) == '-') {
                 ++index;
@@ -222,42 +229,18 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
                 ++index;
             }
             if (!hasOneDigit) {
-                throw new TNumberFormatException();
+                throw new NumberFormatException();
             }
             if (negativeExp) {
                 numExp = -numExp;
             }
             exp += numExp;
         }
-        if (exp > 38 || exp == 38 && mantissa > 34028234) {
-            return !negative ? POSITIVE_INFINITY : NEGATIVE_INFINITY;
-        }
-        if (negative) {
-            mantissa = -mantissa;
-        }
-        return mantissa * decimalExponent(exp);
+
+        return FloatSynthesizer.synthesizeFloat(mantissa, exp, negative);
     }
 
-    private static float decimalExponent(int n) {
-        double d;
-        if (n < 0) {
-            d = 0.1;
-            n = -n;
-        } else {
-            d = 10;
-        }
-        double result = 1;
-        while (n != 0) {
-            if (n % 2 != 0) {
-                result *= d;
-            }
-            d *= d;
-            n /= 2;
-        }
-        return (float) result;
-    }
-
-    public static TFloat valueOf(TString s) throws TNumberFormatException {
+    public static TFloat valueOf(String s) throws TNumberFormatException {
         return valueOf(parseFloat(s));
     }
 
@@ -270,22 +253,29 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
     }
 
     @NoSideEffects
-    public static native int compare(float f1, float f2);
+    public static int compare(float a, float b) {
+        var diff = (a > b ? 1 : 0) - (b > a ? 1 : 0);
+        return diff != 0 ? diff : (1 / a > 1 / b ? 1 : 0) - (1 / b > 1 / a ? 1 : 0)
+                + (b == b ? 1 : 0) - (a == a ? 1 : 0);
+    }
 
     @Override
     public int compareTo(TFloat other) {
         return compare(value, other.value);
     }
 
-    public static int floatToRawIntBits(float value) {
-        return floatToIntBits(value);
-    }
-
-    @JSBody(params = "value", script = "return $rt_floatToIntBits(value);")
+    @JSBody(params = "value", script = "return $rt_floatToRawIntBits(value);")
     @Import(name = "teavm_reinterpretFloatToInt")
     @NoSideEffects
     @Unmanaged
-    public static native int floatToIntBits(float value);
+    public static native int floatToRawIntBits(float value);
+
+    public static int floatToIntBits(float value) {
+        if (isNaN(value)) {
+            return 0x7fc00000;
+        }
+        return floatToRawIntBits(value);
+    }
 
     @JSBody(params = "bits", script = "return $rt_intBitsToFloat(bits);")
     @Import(name = "teavm_reinterpretIntToFloat")
@@ -303,9 +293,13 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
         int sz = 0;
         int bits = floatToIntBits(f);
         boolean subNormal = false;
+        boolean negative = (bits & (1 << 31)) != 0;
         int exp = ((bits >>> 23) & 0xFF) - 127;
         int mantissa = (bits & 0x7FFFFF) << 1;
         if (exp == -127) {
+            if (mantissa == 0) {
+                return negative ? "-0x0.0p0" : "0x0.0p0";
+            }
             ++exp;
             subNormal = true;
         }
@@ -324,7 +318,7 @@ public class TFloat extends TNumber implements TComparable<TFloat> {
         buffer[sz++] = subNormal ? '0' : '1';
         buffer[sz++] = 'x';
         buffer[sz++] = '0';
-        if ((bits & (1L << 31)) != 0) {
+        if (negative) {
             buffer[sz++] = '-';
         }
         int half = sz / 2;

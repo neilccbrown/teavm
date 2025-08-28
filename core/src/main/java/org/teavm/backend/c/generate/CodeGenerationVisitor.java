@@ -15,7 +15,7 @@
  */
 package org.teavm.backend.c.generate;
 
-import static org.teavm.model.lowlevel.ExceptionHandlingShadowStackContributor.isManagedMethodCall;
+import static org.teavm.model.lowlevel.ExceptionHandlingUtil.isManagedMethodCall;
 import com.carrotsearch.hppc.IntContainer;
 import com.carrotsearch.hppc.IntHashSet;
 import com.carrotsearch.hppc.IntSet;
@@ -469,7 +469,7 @@ public class CodeGenerationVisitor implements ExprVisitor, StatementVisitor {
     }
 
     private boolean needsCallSiteId() {
-        return context.isLongjmp() && managed;
+        return managed;
     }
 
     @Override
@@ -728,13 +728,14 @@ public class CodeGenerationVisitor implements ExprVisitor, StatementVisitor {
                 arguments.get(i).acceptVisitor(this);
                 writer.print(", ").printStrictType(((ValueType.Array) type).getItemType()).print(")");
             } else if (isPrimitiveBuffer(type)) {
-                writer.print("TEAVM_ARRAY_DATA(TEAVM_FIELD(");
-                String typeName = ((ValueType.Object) type).getClassName();
+                withCallSite();
+                writer.print(names.forMethod(new MethodReference("java.nio.NativeBufferUtil",
+                        "getAddress", ValueType.object("java.nio.Buffer"),
+                        ValueType.object(Address.class.getName()))));
+                includes.includeClass("java.nio.NativeBufferUtil");
+                writer.print("(");
                 arguments.get(i).acceptVisitor(this);
-                includes.includeClass(typeName);
-                writer.print(", ").print(names.forClass(typeName)).print(", ")
-                        .print(names.forMemberField(new FieldReference(typeName, "array"))).print(")");
-                writer.print(", ").print(BUFFER_TYPES.get(typeName)).print(")");
+                writer.print("))");
             } else {
                 arguments.get(i).acceptVisitor(this);
             }
@@ -1056,6 +1057,11 @@ public class CodeGenerationVisitor implements ExprVisitor, StatementVisitor {
 
     @Override
     public void visit(CastExpr expr) {
+        if (expr.isWeak()) {
+            expr.getValue().acceptVisitor(this);
+            return;
+        }
+
         if (expr.getTarget() instanceof ValueType.Object) {
             String className = ((ValueType.Object) expr.getTarget()).getClassName();
             if (!context.getCharacteristics().isManaged(className)) {
@@ -1245,13 +1251,15 @@ public class CodeGenerationVisitor implements ExprVisitor, StatementVisitor {
 
         int statementId = registerIdentifiedStatement(statement);
 
-        writer.print("while (");
+        writer.println("while (1) {").indent();
+
+        // This can't be moved to 'while', since C11 standard allows removing infinite loops
+        // See https://www.iso-9899.info/n1570.html#6.8.5p6
         if (statement.getCondition() != null) {
+            writer.print("if (!");
             statement.getCondition().acceptVisitor(this);
-        } else {
-            writer.print("1");
+            writer.println(") break;");
         }
-        writer.println(") {").indent();
 
         boolean oldEnd = end;
         for (Statement part : statement.getBody()) {
@@ -1357,9 +1365,7 @@ public class CodeGenerationVisitor implements ExprVisitor, StatementVisitor {
         }
         writer.println(";");
 
-        if (context.isLongjmp()) {
-            writer.println("TEAVM_UNREACHABLE");
-        }
+        writer.println("TEAVM_UNREACHABLE");
 
         popLocation(statement.getLocation());
     }
@@ -1581,6 +1587,11 @@ public class CodeGenerationVisitor implements ExprVisitor, StatementVisitor {
         @Override
         public void importMethod(MethodReference method, boolean isStatic) {
             classContext.importMethod(method, isStatic);
+        }
+
+        @Override
+        public void emitCallSite() {
+            withCallSite();
         }
     };
 

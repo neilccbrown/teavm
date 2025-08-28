@@ -17,21 +17,26 @@ package org.teavm.classlib.java.nio;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.sameInstance;
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.fail;
 import java.io.IOException;
 import java.nio.BufferOverflowException;
 import java.nio.BufferUnderflowException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.CharBuffer;
 import java.nio.InvalidMarkException;
 import java.nio.ReadOnlyBufferException;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.teavm.junit.SkipPlatform;
 import org.teavm.junit.TeaVMTestRunner;
-import org.teavm.junit.WholeClassCompilation;
+import org.teavm.junit.TestPlatform;
 
 @RunWith(TeaVMTestRunner.class)
-@WholeClassCompilation
 public class CharBufferTest {
     @Test
     public void allocates() {
@@ -48,6 +53,33 @@ public class CharBufferTest {
         } catch (InvalidMarkException e) {
             // ok
         }
+    }
+
+    @Test
+    @SkipPlatform({ TestPlatform.WASI, TestPlatform.WEBASSEMBLY})
+    public void bulkTransferDirect() {
+        var buffer = ByteBuffer.allocateDirect(10).asCharBuffer();
+        var chars = new char[] { 1, 2, 3 };
+        buffer.put(0, chars);
+        var charsCopy = new char[chars.length];
+        buffer.get(0, charsCopy);
+        assertArrayEquals(chars, charsCopy);
+    }
+
+
+    @Test
+    public void bulkTransferRelative() {
+        var arr = new char[5];
+        var buffer = CharBuffer.wrap(arr);
+        var src = CharBuffer.wrap(new char[] { 1, 2, 3 });
+        buffer.put(src);
+        assertArrayEquals(new char[] { 1, 2, 3, 0, 0 }, arr);
+        assertEquals(3, buffer.position());
+        assertEquals(3, src.position());
+
+        assertThrows(BufferOverflowException.class, () -> buffer.put(CharBuffer.wrap(new char[] { 4, 5, 6 })));
+        assertThrows(ReadOnlyBufferException.class, () -> buffer.rewind().asReadOnlyBuffer()
+                .put(CharBuffer.wrap(new char[] { 4, 5, 6 })));
     }
 
     @Test(expected = IllegalArgumentException.class)
@@ -431,5 +463,197 @@ public class CharBufferTest {
         CharBuffer buffer = CharBuffer.allocate(100);
         buffer.put("TeaVM");
         assertThat(buffer.flip().toString(), is("TeaVM"));
+    }
+
+    @Test
+    public void putGetEmptyArray() {
+        CharBuffer cb = CharBuffer.allocate(0);
+        cb.put("");
+        cb.get(new char[0]);
+    }
+
+    @Test
+    public void bulkPut() {
+        var buffer = CharBuffer.allocate(100);
+        buffer.put(new char[] { 'A', 'B', 'C' });
+        assertEquals(3, buffer.position());
+        assertEquals('A', buffer.get(0));
+        assertEquals('B', buffer.get(1));
+        assertEquals('C', buffer.get(2));
+
+        buffer.put(1, new char[] { 'D', 'E', 'F' });
+        assertEquals(3, buffer.position());
+        assertEquals('A', buffer.get(0));
+        assertEquals('D', buffer.get(1));
+        assertEquals('E', buffer.get(2));
+        assertEquals('F', buffer.get(3));
+
+        buffer.put(0, new char[] { 'G', 'H', 'I', 'J' }, 1, 2);
+        assertEquals('H', buffer.get(0));
+        assertEquals('I', buffer.get(1));
+        assertEquals('E', buffer.get(2));
+        assertEquals('F', buffer.get(3));
+    }
+
+    @Test
+    public void bulkPutWrapper() {
+        var byteBuffer = ByteBuffer.allocate(100);
+        byteBuffer.order(ByteOrder.BIG_ENDIAN);
+        var buffer = byteBuffer.asCharBuffer();
+
+        buffer.put(new char[] { 'A', 'B', 'C' });
+        assertEquals(3, buffer.position());
+        assertEquals('A', buffer.get(0));
+        assertEquals('B', buffer.get(1));
+        assertEquals('C', buffer.get(2));
+
+        buffer.put(1, new char[] { 'D', 'E', 'F' });
+        assertEquals(3, buffer.position());
+        assertEquals('A', buffer.get(0));
+        assertEquals('D', buffer.get(1));
+        assertEquals('E', buffer.get(2));
+        assertEquals('F', buffer.get(3));
+        assertEquals(0, byteBuffer.get(0));
+        assertEquals('A', byteBuffer.get(1));
+
+        buffer.put(0, new char[] { 'G', 'H', 'I', 'J' }, 1, 2);
+        assertEquals('H', buffer.get(0));
+        assertEquals('I', buffer.get(1));
+        assertEquals('E', buffer.get(2));
+        assertEquals('F', buffer.get(3));
+
+        byteBuffer.order(ByteOrder.LITTLE_ENDIAN);
+        buffer = byteBuffer.asCharBuffer();
+
+        buffer.put(new char[] { 'A', 'B', 'C' });
+        assertEquals(3, buffer.position());
+        assertEquals('A', buffer.get(0));
+        assertEquals('B', buffer.get(1));
+        assertEquals('C', buffer.get(2));
+
+        buffer.put(1, new char[] { 'D', 'E', 'F' });
+        assertEquals(3, buffer.position());
+        assertEquals('A', buffer.get(0));
+        assertEquals('D', buffer.get(1));
+        assertEquals('E', buffer.get(2));
+        assertEquals('F', buffer.get(3));
+        assertEquals('A', byteBuffer.get(0));
+        assertEquals(0, byteBuffer.get(1));
+
+        buffer.put(0, new char[] { 'G', 'H', 'I', 'J' }, 1, 2);
+        assertEquals('H', buffer.get(0));
+        assertEquals('I', buffer.get(1));
+        assertEquals('E', buffer.get(2));
+        assertEquals('F', buffer.get(3));
+    }
+
+    @Test
+    public void bulkPutBuffer() {
+        var buffer = CharBuffer.allocate(100);
+        buffer.put(CharBuffer.wrap(new char[] { 'A', 'B', 'C' }));
+
+        assertEquals(3, buffer.position());
+        assertEquals('A', buffer.get(0));
+        assertEquals('B', buffer.get(1));
+        assertEquals('C', buffer.get(2));
+
+        buffer.put(1, CharBuffer.wrap(new char[] { 'D', 'E', 'F' }), 1, 2);
+        assertEquals(3, buffer.position());
+        assertEquals('A', buffer.get(0));
+        assertEquals('E', buffer.get(1));
+        assertEquals('F', buffer.get(2));
+    }
+
+    @Test
+    public void bulkPutBufferWrapper() {
+        var buffer = ByteBuffer.allocate(100).order(ByteOrder.BIG_ENDIAN).asCharBuffer();
+        buffer.put(ByteBuffer.wrap(new byte[] { 0, 'A', 0, 'B', 0, 'C' })
+                .order(ByteOrder.BIG_ENDIAN)
+                .asCharBuffer());
+
+        assertEquals('A', buffer.get(0));
+        assertEquals('B', buffer.get(1));
+        assertEquals('C', buffer.get(2));
+
+        buffer = ByteBuffer.allocate(100).order(ByteOrder.LITTLE_ENDIAN).asCharBuffer();
+        buffer.put(ByteBuffer.wrap(new byte[] { 0, 'A', 0, 'B', 0, 'C' })
+                .order(ByteOrder.BIG_ENDIAN)
+                .asCharBuffer());
+
+        assertEquals('A', buffer.get(0));
+        assertEquals('B', buffer.get(1));
+        assertEquals('C', buffer.get(2));
+
+        buffer = ByteBuffer.allocate(100).order(ByteOrder.BIG_ENDIAN).asCharBuffer();
+        buffer.put(ByteBuffer.wrap(new byte[] { 'A', 0, 'B', 0, 'C', 0 })
+                .order(ByteOrder.LITTLE_ENDIAN)
+                .asCharBuffer());
+
+        assertEquals('A', buffer.get(0));
+        assertEquals('B', buffer.get(1));
+        assertEquals('C', buffer.get(2));
+
+        buffer = ByteBuffer.allocate(100).order(ByteOrder.LITTLE_ENDIAN).asCharBuffer();
+        buffer.put(ByteBuffer.wrap(new byte[] { 'A', 0, 'B', 0, 'C', 0 })
+                .order(ByteOrder.LITTLE_ENDIAN)
+                .asCharBuffer());
+
+        assertEquals('A', buffer.get(0));
+        assertEquals('B', buffer.get(1));
+        assertEquals('C', buffer.get(2));
+    }
+
+    @Test
+    public void bulkGet() {
+        var buffer = CharBuffer.wrap(new char[] { 'A', 'B', 'C', 'D', 'E', 'F' });
+        var chars = new char[3];
+
+        buffer.get(chars);
+        assertArrayEquals(new char[] { 'A', 'B', 'C' }, chars);
+        assertEquals(3, buffer.position());
+
+        buffer.get(1, chars);
+        assertArrayEquals(new char[] { 'B', 'C', 'D' }, chars);
+        assertEquals(3, buffer.position());
+
+        buffer.get(4, chars, 1, 2);
+        assertArrayEquals(new char[] { 'B', 'E', 'F' }, chars);
+        assertEquals(3, buffer.position());
+    }
+
+    @Test
+    public void bulkGetWrapper() {
+        var buffer = ByteBuffer.wrap(new byte[] { 'A', 0, 'B', 0, 'C', 0, 'D', 0, 'E', 0, 'F', 0 })
+                .order(ByteOrder.LITTLE_ENDIAN)
+                .asCharBuffer();
+        var chars = new char[3];
+
+        buffer.get(chars);
+        assertArrayEquals(new char[] { 'A', 'B', 'C' }, chars);
+        assertEquals(3, buffer.position());
+
+        buffer.get(1, chars);
+        assertArrayEquals(new char[] { 'B', 'C', 'D' }, chars);
+        assertEquals(3, buffer.position());
+
+        buffer.get(4, chars, 1, 2);
+        assertArrayEquals(new char[] { 'B', 'E', 'F' }, chars);
+        assertEquals(3, buffer.position());
+
+        buffer = ByteBuffer.wrap(new byte[] { 0, 'A', 0, 'B', 0, 'C', 0, 'D', 0, 'E', 0, 'F' })
+                .order(ByteOrder.BIG_ENDIAN)
+                .asCharBuffer();
+
+        buffer.get(chars);
+        assertArrayEquals(new char[] { 'A', 'B', 'C' }, chars);
+        assertEquals(3, buffer.position());
+
+        buffer.get(1, chars);
+        assertArrayEquals(new char[] { 'B', 'C', 'D' }, chars);
+        assertEquals(3, buffer.position());
+
+        buffer.get(4, chars, 1, 2);
+        assertArrayEquals(new char[] { 'B', 'E', 'F' }, chars);
+        assertEquals(3, buffer.position());
     }
 }

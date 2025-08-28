@@ -30,6 +30,7 @@ import java.util.function.IntToLongFunction;
 import java.util.function.IntUnaryOperator;
 import java.util.function.ObjIntConsumer;
 import java.util.function.Supplier;
+import org.teavm.classlib.java.util.TIntSummaryStatistics;
 import org.teavm.classlib.java.util.stream.intimpl.TArrayIntStreamImpl;
 import org.teavm.classlib.java.util.stream.intimpl.TEmptyIntStreamImpl;
 import org.teavm.classlib.java.util.stream.intimpl.TGenerateIntStream;
@@ -42,7 +43,8 @@ import org.teavm.classlib.java.util.stream.intimpl.TSingleIntStreamImpl;
 import org.teavm.classlib.java.util.stream.intimpl.TSpecializedConcatIntStream;
 
 public interface TIntStream extends TBaseStream<Integer, TIntStream> {
-    interface Builder {
+    interface Builder extends IntConsumer {
+        @Override
         void accept(int t);
 
         default Builder add(int t) {
@@ -65,6 +67,14 @@ public interface TIntStream extends TBaseStream<Integer, TIntStream> {
 
     TIntStream flatMap(IntFunction<? extends TIntStream> mapper);
 
+    default TIntStream mapMulti(IntMapMultiConsumer mapper) {
+        return flatMap(e -> {
+            Builder builder = builder();
+            mapper.accept(e, builder);
+            return builder.build();
+        });
+    }
+
     TIntStream distinct();
 
     TIntStream sorted();
@@ -72,6 +82,10 @@ public interface TIntStream extends TBaseStream<Integer, TIntStream> {
     TIntStream peek(IntConsumer action);
 
     TIntStream limit(long maxSize);
+
+    TIntStream takeWhile(IntPredicate predicate);
+
+    TIntStream dropWhile(IntPredicate predicate);
 
     TIntStream skip(long n);
 
@@ -96,6 +110,8 @@ public interface TIntStream extends TBaseStream<Integer, TIntStream> {
     long count();
 
     OptionalDouble average();
+
+    TIntSummaryStatistics summaryStatistics();
 
     boolean anyMatch(IntPredicate predicate);
 
@@ -139,6 +155,10 @@ public interface TIntStream extends TBaseStream<Integer, TIntStream> {
         return new TIterateIntStream(seed, f);
     }
 
+    static TIntStream iterate(int seed, IntPredicate pr, IntUnaryOperator f) {
+        return new TIterateIntStream(seed, pr, f);
+    }
+
     static TIntStream generate(IntSupplier s) {
         return new TGenerateIntStream(s);
     }
@@ -157,5 +177,10 @@ public interface TIntStream extends TBaseStream<Integer, TIntStream> {
         } else {
             return new TGenericConcatIntStream(a, b);
         }
+    }
+
+    @FunctionalInterface
+    interface IntMapMultiConsumer {
+        void accept(int value, IntConsumer ic);
     }
 }

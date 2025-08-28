@@ -24,8 +24,10 @@ import static org.teavm.classlib.java.util.stream.Helper.testDoubleStream;
 import static org.teavm.classlib.java.util.stream.Helper.testIntStream;
 import static org.teavm.classlib.java.util.stream.Helper.testIntegerStream;
 import static org.teavm.classlib.java.util.stream.Helper.testLongStream;
+import java.util.IntSummaryStatistics;
 import java.util.PrimitiveIterator;
 import java.util.Spliterator;
+import java.util.function.IntSupplier;
 import java.util.stream.IntStream;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -105,6 +107,51 @@ public class IntStreamTest {
             testIntStream(() -> IntStream.concat(IntStream.empty(), IntStream.iterate(1, n -> n + 1).limit(5))
                     .skip(index), expected);
         }
+    }
+
+    @Test
+    public void takeWhileWorks() {
+        assertArrayEquals(new int[] { 1, 2, 3 },
+                IntStream.of(1, 2, 3, 4, 0, 5, 6).takeWhile(n -> n < 4).toArray());
+
+        class ForeverIncreasingSupplier implements IntSupplier {
+            int value = 1;
+
+            @Override
+            public int getAsInt() {
+                return value++;
+            }
+        }
+
+        testIntStream(
+                () -> IntStream.concat(
+                        IntStream.generate(new ForeverIncreasingSupplier()).takeWhile(n -> n < 4),
+                        IntStream.generate(new ForeverIncreasingSupplier()).takeWhile(n -> n < 3)
+                ),
+                1, 2, 3, 1, 2
+        );
+    }
+
+    @Test
+    public void dropWhileWorks() {
+        assertArrayEquals(new int[] { 4, 0, 5, 6 },
+                IntStream.of(1, 2, 3, 4, 0, 5, 6).dropWhile(n -> n < 4).toArray());
+        assertArrayEquals(new int[] {},
+                IntStream.of(1, 2, 3, 4, 0, 5, 6).dropWhile(n -> n < 7).toArray());
+    }
+
+    @Test
+    public void takeWhileWithOtherStreamOps() {
+        assertArrayEquals(new int[] { 1, 3 },
+                IntStream.of(1, 2, 3, 4, 0, 5, 6).takeWhile(i -> i < 4).filter(i -> i % 2 != 0).toArray());
+    }
+
+    @Test
+    public void dropWhileWithOtherStreamOps() {
+        assertArrayEquals(new int[] { 4, 0, 6 },
+                IntStream.of(1, 2, 3, 4, 0, 5, 6).dropWhile(i -> i < 4).filter(i -> i % 2 == 0).toArray());
+        assertArrayEquals(new int[] {},
+                IntStream.of(1, 2, 3, 4, 0, 5, 6).dropWhile(i -> i < 7).filter(i -> i % 2 == 0).toArray());
     }
 
     @Test
@@ -326,5 +373,44 @@ public class IntStreamTest {
         sb.setLength(0);
         IntStream.rangeClosed(1, 4).forEach(appendIntNumbersTo(sb));
         assertEquals("1;2;3;4;", sb.toString());
+    }
+
+    @Test
+    public void summaryStatistics() {
+        IntSummaryStatistics statistics = IntStream.of(1, 2, 3).summaryStatistics();
+        assertEquals(3L, statistics.getCount());
+        assertEquals(2.0, statistics.getAverage(), 0.0);
+        assertEquals(1, statistics.getMin());
+        assertEquals(3, statistics.getMax());
+        assertEquals(6L, statistics.getSum());
+        IntSummaryStatistics empty = IntStream.empty().summaryStatistics();
+        assertEquals(0L, empty.getCount());
+        assertEquals(0.0, empty.getAverage(), 0.0);
+        assertEquals(Integer.MAX_VALUE, empty.getMin());
+        assertEquals(Integer.MIN_VALUE, empty.getMax());
+        assertEquals(0L, empty.getSum());
+    }
+
+    @Test
+    public void mapMultiWorks() {
+        int[] mapped = IntStream.rangeClosed(0, 3).mapMulti((cnt, cons) -> {
+            for (int i = 0; i < cnt; i++) {
+                cons.accept(cnt);
+            }
+        }).toArray();
+        assertArrayEquals(new int[] {1, 2, 2, 3, 3, 3}, mapped);
+    }
+
+    @Test
+    public void generateLimit() {
+        var supplier = new IntSupplier() {
+            int index;
+
+            @Override
+            public int getAsInt() {
+                return index++;
+            }
+        };
+        assertArrayEquals(new int[] { 0, 1, 2 }, IntStream.generate(supplier).limit(3).toArray());
     }
 }

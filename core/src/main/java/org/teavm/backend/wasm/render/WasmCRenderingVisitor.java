@@ -22,43 +22,74 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.teavm.backend.wasm.model.WasmFunction;
+import org.teavm.backend.wasm.model.WasmGlobal;
 import org.teavm.backend.wasm.model.WasmLocal;
 import org.teavm.backend.wasm.model.WasmModule;
+import org.teavm.backend.wasm.model.WasmNumType;
 import org.teavm.backend.wasm.model.WasmType;
+import org.teavm.backend.wasm.model.expression.WasmArrayCopy;
+import org.teavm.backend.wasm.model.expression.WasmArrayGet;
+import org.teavm.backend.wasm.model.expression.WasmArrayLength;
+import org.teavm.backend.wasm.model.expression.WasmArrayNewDefault;
+import org.teavm.backend.wasm.model.expression.WasmArrayNewFixed;
+import org.teavm.backend.wasm.model.expression.WasmArraySet;
 import org.teavm.backend.wasm.model.expression.WasmBlock;
 import org.teavm.backend.wasm.model.expression.WasmBranch;
 import org.teavm.backend.wasm.model.expression.WasmBreak;
 import org.teavm.backend.wasm.model.expression.WasmCall;
+import org.teavm.backend.wasm.model.expression.WasmCallReference;
+import org.teavm.backend.wasm.model.expression.WasmCast;
+import org.teavm.backend.wasm.model.expression.WasmCastBranch;
 import org.teavm.backend.wasm.model.expression.WasmConditional;
 import org.teavm.backend.wasm.model.expression.WasmConversion;
+import org.teavm.backend.wasm.model.expression.WasmCopy;
 import org.teavm.backend.wasm.model.expression.WasmDrop;
 import org.teavm.backend.wasm.model.expression.WasmExpression;
 import org.teavm.backend.wasm.model.expression.WasmExpressionVisitor;
+import org.teavm.backend.wasm.model.expression.WasmExternConversion;
+import org.teavm.backend.wasm.model.expression.WasmFill;
 import org.teavm.backend.wasm.model.expression.WasmFloat32Constant;
 import org.teavm.backend.wasm.model.expression.WasmFloat64Constant;
 import org.teavm.backend.wasm.model.expression.WasmFloatBinary;
 import org.teavm.backend.wasm.model.expression.WasmFloatType;
 import org.teavm.backend.wasm.model.expression.WasmFloatUnary;
+import org.teavm.backend.wasm.model.expression.WasmFunctionReference;
+import org.teavm.backend.wasm.model.expression.WasmGetGlobal;
 import org.teavm.backend.wasm.model.expression.WasmGetLocal;
 import org.teavm.backend.wasm.model.expression.WasmIndirectCall;
+import org.teavm.backend.wasm.model.expression.WasmInt31Get;
+import org.teavm.backend.wasm.model.expression.WasmInt31Reference;
 import org.teavm.backend.wasm.model.expression.WasmInt32Constant;
 import org.teavm.backend.wasm.model.expression.WasmInt64Constant;
 import org.teavm.backend.wasm.model.expression.WasmIntBinary;
 import org.teavm.backend.wasm.model.expression.WasmIntType;
 import org.teavm.backend.wasm.model.expression.WasmIntUnary;
+import org.teavm.backend.wasm.model.expression.WasmIsNull;
 import org.teavm.backend.wasm.model.expression.WasmLoadFloat32;
 import org.teavm.backend.wasm.model.expression.WasmLoadFloat64;
 import org.teavm.backend.wasm.model.expression.WasmLoadInt32;
 import org.teavm.backend.wasm.model.expression.WasmLoadInt64;
 import org.teavm.backend.wasm.model.expression.WasmMemoryGrow;
+import org.teavm.backend.wasm.model.expression.WasmNullBranch;
+import org.teavm.backend.wasm.model.expression.WasmNullConstant;
+import org.teavm.backend.wasm.model.expression.WasmPop;
+import org.teavm.backend.wasm.model.expression.WasmPush;
+import org.teavm.backend.wasm.model.expression.WasmReferencesEqual;
 import org.teavm.backend.wasm.model.expression.WasmReturn;
+import org.teavm.backend.wasm.model.expression.WasmSetGlobal;
 import org.teavm.backend.wasm.model.expression.WasmSetLocal;
 import org.teavm.backend.wasm.model.expression.WasmStoreFloat32;
 import org.teavm.backend.wasm.model.expression.WasmStoreFloat64;
 import org.teavm.backend.wasm.model.expression.WasmStoreInt32;
 import org.teavm.backend.wasm.model.expression.WasmStoreInt64;
+import org.teavm.backend.wasm.model.expression.WasmStructGet;
+import org.teavm.backend.wasm.model.expression.WasmStructNew;
+import org.teavm.backend.wasm.model.expression.WasmStructNewDefault;
+import org.teavm.backend.wasm.model.expression.WasmStructSet;
 import org.teavm.backend.wasm.model.expression.WasmSwitch;
+import org.teavm.backend.wasm.model.expression.WasmTest;
+import org.teavm.backend.wasm.model.expression.WasmThrow;
+import org.teavm.backend.wasm.model.expression.WasmTry;
 import org.teavm.backend.wasm.model.expression.WasmUnreachable;
 import org.teavm.model.TextLocation;
 
@@ -160,6 +191,16 @@ class WasmCRenderingVisitor implements WasmExpressionVisitor {
         result.getLines().add(new CSingleLine("}"));
 
         value = result;
+    }
+
+    @Override
+    public void visit(WasmNullBranch expression) {
+        unsupported();
+    }
+
+    @Override
+    public void visit(WasmCastBranch expression) {
+        unsupported();
     }
 
     @Override
@@ -330,6 +371,16 @@ class WasmCRenderingVisitor implements WasmExpressionVisitor {
     }
 
     @Override
+    public void visit(WasmNullConstant expression) {
+        value = CExpression.relocatable("/* can't produce ref.null */");
+    }
+
+    @Override
+    public void visit(WasmIsNull expression) {
+        unsupported();
+    }
+
+    @Override
     public void visit(WasmGetLocal expression) {
         value = new CExpression(getVariableName(expression.getLocal()));
     }
@@ -342,6 +393,24 @@ class WasmCRenderingVisitor implements WasmExpressionVisitor {
         result.getLines().addAll(value.getLines());
 
         result.addLine(getVariableName(expression.getLocal()) + " = " + value.getText() + ";",
+                expression.getLocation());
+
+        value = result;
+    }
+
+    @Override
+    public void visit(WasmGetGlobal expression) {
+        value = new CExpression(getVariableName(expression.getGlobal()));
+    }
+
+    @Override
+    public void visit(WasmSetGlobal expression) {
+        CExpression result = new CExpression();
+        requiredType = expression.getGlobal().getType();
+        expression.getValue().acceptVisitor(this);
+        result.getLines().addAll(value.getLines());
+
+        result.addLine(getVariableName(expression.getGlobal()) + " = " + value.getText() + ";",
                 expression.getLocation());
 
         value = result;
@@ -643,7 +712,7 @@ class WasmCRenderingVisitor implements WasmExpressionVisitor {
         if (type != null && expression.getSourceType() != expression.getTargetType()) {
             switch (expression.getTargetType()) {
                 case INT32:
-                    if (expression.getSourceType() == WasmType.FLOAT32 && expression.isReinterpret()) {
+                    if (expression.getSourceType() == WasmNumType.FLOAT32 && expression.isReinterpret()) {
                         result.setText("reinterpret_float32(" + operand.getText() + ")");
                     } else if (expression.isSigned()) {
                         result.setText("(int32_t) " + operand.getText());
@@ -652,7 +721,7 @@ class WasmCRenderingVisitor implements WasmExpressionVisitor {
                     }
                     break;
                 case INT64:
-                    if (expression.getSourceType() == WasmType.FLOAT64 && expression.isReinterpret()) {
+                    if (expression.getSourceType() == WasmNumType.FLOAT64 && expression.isReinterpret()) {
                         result.setText("reinterpret_float64(" + operand.getText() + ")");
                     } else if (expression.isSigned()) {
                         result.setText("(int64_t) " + operand.getText());
@@ -661,9 +730,9 @@ class WasmCRenderingVisitor implements WasmExpressionVisitor {
                     }
                     break;
                 case FLOAT32:
-                    if (expression.getSourceType() == WasmType.INT32 && expression.isReinterpret()) {
+                    if (expression.getSourceType() == WasmNumType.INT32 && expression.isReinterpret()) {
                         result.setText("reinterpret_int32(" + operand.getText() + ")");
-                    } else if (expression.getSourceType() == WasmType.FLOAT64) {
+                    } else if (expression.getSourceType() == WasmNumType.FLOAT64) {
                         result.setText("(float) " + operand.getText());
                     } else if (expression.isSigned()) {
                         result.setText("(float) (int64_t) " + operand.getText());
@@ -672,9 +741,9 @@ class WasmCRenderingVisitor implements WasmExpressionVisitor {
                     }
                     break;
                 case FLOAT64:
-                    if (expression.getSourceType() == WasmType.INT64 && expression.isReinterpret()) {
+                    if (expression.getSourceType() == WasmNumType.INT64 && expression.isReinterpret()) {
                         result.setText("reinterpret_int64(" + operand.getText() + ")");
-                    } else if (expression.getSourceType() == WasmType.FLOAT32) {
+                    } else if (expression.getSourceType() == WasmNumType.FLOAT32) {
                         result.setText("(double) " + operand.getText());
                     } else if (expression.isSigned()) {
                         result.setText("(double) (int64_t) " + operand.getText());
@@ -690,25 +759,18 @@ class WasmCRenderingVisitor implements WasmExpressionVisitor {
 
     @Override
     public void visit(WasmCall expression) {
-        WasmFunction function = module.getFunctions().get(expression.getFunctionName());
-        if (function == null) {
-            value = new CExpression("0");
-            return;
-        }
+        var function = expression.getFunction();
 
         CExpression result = new CExpression();
         WasmType type = requiredType;
 
         StringBuilder sb = new StringBuilder();
-        if (expression.isImported()) {
-            sb.append(function.getImportModule() != null && !function.getImportModule().isEmpty()
-                    ? function.getImportModule() + "_" + function.getImportName()
-                    : function.getImportName());
-        } else {
-            sb.append(expression.getFunctionName());
-        }
+        sb.append(function.getImportModule() != null && !function.getImportModule().isEmpty()
+                ? function.getImportModule() + "_" + function.getImportName()
+                : function.getImportName());
+
         sb.append('(');
-        translateArguments(expression.getArguments(), function.getParameters(), result, sb);
+        translateArguments(expression.getArguments(), function.getType().getParameterTypes(), result, sb);
         sb.append(')');
         result.setText(sb.toString());
 
@@ -725,12 +787,12 @@ class WasmCRenderingVisitor implements WasmExpressionVisitor {
         WasmType type = requiredType;
         StringBuilder sb = new StringBuilder();
 
-        sb.append("(*(" + mapType(expression.getReturnType()) + " (*)(");
-        for (int i = 0; i < expression.getParameterTypes().size(); ++i) {
+        sb.append("(*(" + mapType(expression.getType().getSingleReturnType()) + " (*)(");
+        for (int i = 0; i < expression.getType().getParameterTypes().size(); ++i) {
             if (i > 0) {
                 sb.append(", ");
             }
-            sb.append(mapType(expression.getParameterTypes().get(i)));
+            sb.append(mapType(expression.getType().getParameterTypes().get(i)));
         }
         sb.append(")) ");
 
@@ -739,7 +801,7 @@ class WasmCRenderingVisitor implements WasmExpressionVisitor {
         result.getLines().addAll(value.getLines());
         value = cacheIfNeeded(WasmType.INT32, value, result);
         sb.append("wasm_table[" + value.getText() + "])(");
-        translateArguments(expression.getArguments(), expression.getParameterTypes(), result, sb);
+        translateArguments(expression.getArguments(), expression.getType().getParameterTypes(), result, sb);
         sb.append(")");
         result.setText(sb.toString());
 
@@ -750,7 +812,12 @@ class WasmCRenderingVisitor implements WasmExpressionVisitor {
         value = result;
     }
 
-    private void translateArguments(List<WasmExpression> wasmArguments, List<WasmType> signature,
+    @Override
+    public void visit(WasmCallReference expression) {
+        unsupported();
+    }
+
+    private void translateArguments(List<? extends WasmExpression> wasmArguments, List<? extends WasmType> signature,
             CExpression result, StringBuilder sb) {
         if (wasmArguments.isEmpty()) {
             return;
@@ -1058,6 +1125,163 @@ class WasmCRenderingVisitor implements WasmExpressionVisitor {
         value = result;
     }
 
+    @Override
+    public void visit(WasmFill expression) {
+        var result = new CExpression();
+
+        requiredType = WasmType.INT32;
+        expression.getIndex().acceptVisitor(this);
+        var dest = value;
+
+        requiredType = WasmType.INT32;
+        expression.getValue().acceptVisitor(this);
+        var v = value;
+
+        requiredType = WasmType.INT32;
+        expression.getCount().acceptVisitor(this);
+        var num = value;
+
+        result.getLines().addAll(dest.getLines());
+        result.getLines().addAll(v.getLines());
+        result.getLines().addAll(num.getLines());
+
+        result.addLine("memset(wasm_heap + " + dest.getText() + ", " + v.getText()
+                + ", " + num.getText() + ");");
+        value = result;
+    }
+
+    @Override
+    public void visit(WasmCopy expression) {
+        var result = new CExpression();
+
+        requiredType = WasmType.INT32;
+        expression.getDestinationIndex().acceptVisitor(this);
+        var dest = value;
+
+        requiredType = WasmType.INT32;
+        expression.getSourceIndex().acceptVisitor(this);
+        var src = value;
+
+        requiredType = WasmType.INT32;
+        expression.getCount().acceptVisitor(this);
+        var num = value;
+
+        result.getLines().addAll(dest.getLines());
+        result.getLines().addAll(src.getLines());
+        result.getLines().addAll(num.getLines());
+
+        result.addLine("memcpy(wasm_heap + " + dest.getText() + ", wasm_heap + " + src.getText() + ", "
+                + num.getText() + ");");
+        value = result;
+    }
+
+    @Override
+    public void visit(WasmTry expression) {
+        value = new CExpression("/* TRY */");
+    }
+
+    @Override
+    public void visit(WasmThrow expression) {
+        value = new CExpression("/* THROW */");
+    }
+
+    @Override
+    public void visit(WasmReferencesEqual expression) {
+        unsupported();
+    }
+
+    @Override
+    public void visit(WasmCast expression) {
+        unsupported();
+    }
+
+    @Override
+    public void visit(WasmTest expression) {
+        unsupported();
+    }
+
+    @Override
+    public void visit(WasmExternConversion expression) {
+        unsupported();
+    }
+
+    @Override
+    public void visit(WasmStructNew expression) {
+        unsupported();
+    }
+
+    @Override
+    public void visit(WasmStructNewDefault expression) {
+        unsupported();
+    }
+
+    @Override
+    public void visit(WasmStructGet expression) {
+        unsupported();
+    }
+
+    @Override
+    public void visit(WasmStructSet expression) {
+        unsupported();
+    }
+
+    @Override
+    public void visit(WasmArrayNewDefault expression) {
+        unsupported();
+    }
+
+    @Override
+    public void visit(WasmArrayNewFixed expression) {
+        unsupported();
+    }
+
+    @Override
+    public void visit(WasmArrayGet expression) {
+        unsupported();
+    }
+
+    @Override
+    public void visit(WasmArraySet expression) {
+        unsupported();
+    }
+
+    @Override
+    public void visit(WasmArrayLength expression) {
+        unsupported();
+    }
+
+    @Override
+    public void visit(WasmArrayCopy expression) {
+        unsupported();
+    }
+
+    @Override
+    public void visit(WasmFunctionReference expression) {
+        unsupported();
+    }
+
+    @Override
+    public void visit(WasmInt31Reference expression) {
+        unsupported();
+    }
+
+    @Override
+    public void visit(WasmInt31Get expression) {
+        unsupported();
+    }
+
+    @Override
+    public void visit(WasmPush expression) {
+    }
+
+    @Override
+    public void visit(WasmPop expression) {
+    }
+
+    private void unsupported() {
+        value = new CExpression("/* unsupported */");
+    }
+
     private CExpression checkAddress(CExpression index) {
         if (!memoryAccessChecked) {
             return index;
@@ -1084,9 +1308,18 @@ class WasmCRenderingVisitor implements WasmExpressionVisitor {
     }
 
     static String mapType(WasmType type) {
-        if (type == null) {
+        if (type instanceof WasmType.Number) {
+            return mapType(((WasmType.Number) type).number);
+        } else if (type instanceof WasmType.Reference) {
+            return "/* unknown type */";
+        } else if (type == null) {
             return "void";
+        } else {
+            throw new IllegalArgumentException();
         }
+    }
+
+    static String mapType(WasmNumType type) {
         switch (type) {
             case INT32:
                 return "int32_t";
@@ -1146,5 +1379,9 @@ class WasmCRenderingVisitor implements WasmExpressionVisitor {
             localVariableNames[local.getIndex()] = result;
         }
         return result;
+    }
+
+    String getVariableName(WasmGlobal global) {
+        return "wasm_global_" + module.globals.indexOf(global);
     }
 }

@@ -15,6 +15,8 @@
  */
 package org.teavm.backend.wasm.model.expression;
 
+import java.util.Set;
+
 public class WasmUnreachable extends WasmExpression {
     public WasmUnreachable() {
     }
@@ -22,5 +24,10 @@ public class WasmUnreachable extends WasmExpression {
     @Override
     public void acceptVisitor(WasmExpressionVisitor visitor) {
         visitor.visit(this);
+    }
+
+    @Override
+    protected boolean isTerminating(Set<WasmBlock> blocks) {
+        return true;
     }
 }

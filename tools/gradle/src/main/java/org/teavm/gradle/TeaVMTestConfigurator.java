@@ -28,17 +28,17 @@ class TeaVMTestConfigurator {
     static void configure(Project project, TeaVMTests tests) {
         project.getTasks().withType(Test.class).configureEach(test -> {
             test.getSystemProperties().putIfAbsent("teavm.junit.target",
-                    new File(project.getBuildDir(), "tests/teavm"));
+                    new File(project.getLayout().getBuildDirectory().getAsFile().get(), "tests/teavm"));
             test.getSystemProperties().putIfAbsent("teavm.junit.threads", "1");
 
-            test.getSystemProperties().putIfAbsent("teavm.junit.js.enabled",
+            test.getSystemProperties().putIfAbsent("teavm.junit.js",
                     tests.getJs().getEnabled().get());
             test.getSystemProperties().putIfAbsent("teavm.junit.js.runner",
                     tests.getJs().getRunner().map(TeaVMTestConfigurator::runnerToString).get());
             test.getSystemProperties().putIfAbsent("teavm.junit.js.decodeStack",
                     tests.getJs().getDecodeStack().get());
 
-            test.getSystemProperties().putIfAbsent("teavm.junit.wasm.enabled",
+            test.getSystemProperties().putIfAbsent("teavm.junit.wasm",
                     tests.getWasm().getEnabled().get());
             test.getSystemProperties().putIfAbsent("teavm.junit.wasm.runner",
                     tests.getWasm().getRunner().map(TeaVMTestConfigurator::runnerToString).get());

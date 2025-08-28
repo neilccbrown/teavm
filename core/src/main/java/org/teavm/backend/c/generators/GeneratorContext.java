@@ -22,6 +22,7 @@ import org.teavm.backend.c.generate.StringPool;
 import org.teavm.backend.lowlevel.generate.NameProvider;
 import org.teavm.dependency.DependencyInfo;
 import org.teavm.diagnostics.Diagnostics;
+import org.teavm.model.ClassHierarchy;
 import org.teavm.model.ClassReaderSource;
 import org.teavm.model.MethodReference;
 import org.teavm.model.lowlevel.CallSiteDescriptor;
@@ -36,6 +37,10 @@ public interface GeneratorContext {
     Diagnostics diagnotics();
 
     ClassReaderSource classSource();
+
+    ClassReaderSource initialClassSource();
+
+    ClassHierarchy hierarchy();
 
     DependencyInfo dependencies();
 
@@ -56,8 +61,6 @@ public interface GeneratorContext {
     String escapeFileName(String name);
 
     void importMethod(MethodReference method, boolean isStatic);
-
-    boolean usesLongjmp();
 
     CallSiteDescriptor createCallSite(CallSiteLocation[] locations, ExceptionHandlerDescriptor[] exceptionHandlers);
 }

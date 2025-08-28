@@ -16,6 +16,8 @@
 package org.teavm.classlib.java.util;
 
 import java.util.Arrays;
+import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.function.Consumer;
 import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.lang.*;
@@ -32,6 +34,9 @@ public class TArrayList<E> extends TAbstractList<E> implements TCloneable, TSeri
 
     @SuppressWarnings("unchecked")
     public TArrayList(int initialCapacity) {
+        if (initialCapacity < 0) {
+            throw new IllegalArgumentException();
+        }
         array = (E[]) new Object[initialCapacity];
     }
 
@@ -61,6 +66,18 @@ public class TArrayList<E> extends TAbstractList<E> implements TCloneable, TSeri
     public E get(int index) {
         checkIndex(index);
         return array[index];
+    }
+
+    @Override
+    public E getFirst() {
+        checkIfNotEmpty();
+        return array[0];
+    }
+
+    @Override
+    public E getLast() {
+        checkIfNotEmpty();
+        return array[size - 1];
     }
 
     @Override
@@ -102,6 +119,34 @@ public class TArrayList<E> extends TAbstractList<E> implements TCloneable, TSeri
     }
 
     @Override
+    public void addFirst(E element) {
+        add(0, element);
+    }
+
+    @Override
+    public void addLast(E element) {
+        add(element);
+    }
+
+    @Override
+    public E removeFirst() {
+        checkIfNotEmpty();
+        return remove(0);
+    }
+
+    @Override
+    public E removeLast() {
+        checkIfNotEmpty();
+        return remove(size - 1);
+    }
+
+    private void checkIfNotEmpty() {
+        if (isEmpty()) {
+            throw new NoSuchElementException();
+        }
+    }
+
+    @Override
     public E remove(int index) {
         checkIndex(index);
         E old = array[index];
@@ -129,6 +174,7 @@ public class TArrayList<E> extends TAbstractList<E> implements TCloneable, TSeri
     public void clear() {
         Arrays.fill(array, 0, size, null);
         size = 0;
+        ++modCount;
     }
 
     @Override
@@ -209,5 +255,20 @@ public class TArrayList<E> extends TAbstractList<E> implements TCloneable, TSeri
         }
         buffer.append(array[length] == this ? "(this Collection)" : array[length]);
         return buffer.append(']').toString();
+    }
+
+    @Override
+    public int hashCode() {
+        int result = 1;
+        for (int i = 0; i < size; i++) {
+            result = 31 * result + Objects.hashCode(array[i]);
+        }
+        return result;
+    }
+
+    @Override
+    public void sort(TComparator<? super E> comp) {
+        TArrays.sort(array, 0, size, comp);
+        modCount++;
     }
 }

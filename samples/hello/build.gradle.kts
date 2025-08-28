@@ -1,3 +1,5 @@
+import org.teavm.gradle.api.SourceFilePolicy
+
 /*
  *  Copyright 2023 Alexey Andreev.
  *
@@ -20,12 +22,20 @@ plugins {
     id("org.teavm")
 }
 
+configurations {
+    create("teavmCli")
+    create("teavmClasslib")
+}
+
 dependencies {
     teavm(teavm.libs.jsoApis)
     compileOnly("jakarta.servlet:jakarta.servlet-api:6.0.0")
 }
 
 teavm.js {
-    addedToWebApp.set(true)
-    mainClass.set("org.teavm.samples.hello.Client")
+    addedToWebApp = true
+    mainClass = "org.teavm.samples.hello.Client"
+    sourceMap = true
+    debugInformation = true
+    sourceFilePolicy = SourceFilePolicy.LINK_LOCAL_FILES
 }

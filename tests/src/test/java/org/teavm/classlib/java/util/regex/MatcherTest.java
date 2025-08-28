@@ -42,11 +42,9 @@ import java.util.regex.Pattern;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.teavm.junit.TeaVMTestRunner;
-import org.teavm.junit.WholeClassCompilation;
 
 @SuppressWarnings("nls")
 @RunWith(TeaVMTestRunner.class)
-@WholeClassCompilation
 public class MatcherTest {
     String[] testPatterns = {
             "(a|b)*abb",
@@ -108,7 +106,7 @@ public class MatcherTest {
         StringBuffer sb = new StringBuffer();
 
         for (int i = 0; m.find(); i++) {
-            m.appendReplacement(sb, new Integer(i * 10 + i).toString());
+            m.appendReplacement(sb, Integer.toString(i * 10 + i));
         }
         m.appendTail(sb);
         assertEquals("Today is 0-11-22 ...", sb.toString());
@@ -120,7 +118,7 @@ public class MatcherTest {
         Matcher m = p.matcher("xx $ equals to xx rur.");
         StringBuffer sb = new StringBuffer();
         for (int i = 1; m.find(); i *= 30) {
-            String rep = new Integer(i).toString() + " $1";
+            String rep = i + " $1";
             m.appendReplacement(sb, rep);
         }
         m.appendTail(sb);

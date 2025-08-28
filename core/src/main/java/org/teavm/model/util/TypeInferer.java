@@ -270,12 +270,12 @@ public class TypeInferer {
 
         @Override
         public void create(VariableReader receiver, String type) {
-            types[receiver.getIndex()] =  new InferenceType(InferenceKind.OBJECT, 0);
+            types[receiver.getIndex()] = new InferenceType(InferenceKind.OBJECT, 0);
         }
 
         @Override
         public void cloneArray(VariableReader receiver, VariableReader array) {
-            builder.addEdge(array.getIndex(), receiver.getIndex());
+            types[receiver.getIndex()] = new InferenceType(InferenceKind.OBJECT, 0);
         }
 
         @Override
@@ -296,7 +296,7 @@ public class TypeInferer {
         }
 
         @Override
-        public void cast(VariableReader receiver, VariableReader value, ValueType targetType) {
+        public void cast(VariableReader receiver, VariableReader value, ValueType targetType, boolean weak) {
             types[receiver.getIndex()] = convert(targetType);
         }
 

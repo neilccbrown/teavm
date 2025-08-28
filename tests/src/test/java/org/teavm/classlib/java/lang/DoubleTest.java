@@ -16,14 +16,18 @@
 package org.teavm.classlib.java.lang;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import java.util.Random;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.teavm.junit.TeaVMTestRunner;
 
 @RunWith(TeaVMTestRunner.class)
 public class DoubleTest {
+    public static final double OTHER_NAN = Double.longBitsToDouble(Double.doubleToLongBits(Double.NaN) + 1);
+
     @Test
     public void parsed() {
         assertEquals(23, Double.parseDouble("23"), 1E-12);
@@ -49,9 +53,41 @@ public class DoubleTest {
         assertEquals(0, Double.parseDouble("23E-8000"), 1E-12);
         assertEquals(0, Double.parseDouble("00000"), 1E-12);
         assertEquals(0, Double.parseDouble("00000.0000"), 1E-12);
+        assertEquals("74.92507492507494", Double.toString(Double.parseDouble("74.92507492507494")));
 
         assertEquals(4499999999999888888888888.0, Double.parseDouble("4499999999999888888888888"), 1E9);
         assertEquals(0.4499999999999888888888888, Double.parseDouble("0.4499999999999888888888888"), 1E-15);
+        assertEquals(Double.POSITIVE_INFINITY, Double.parseDouble("1e330"), 1E-15);
+
+        assertEquals(23, Double.parseDouble("23f"), 0.1f);
+        assertEquals(23, Double.parseDouble("23F"), 0.1f);
+        assertEquals(23, Double.parseDouble("23d"), 0.1f);
+        assertEquals(23, Double.parseDouble("23D"), 0.1f);
+    }
+
+    @Test
+    public void testEquals() {
+        assertNotEquals(Double.valueOf(-0.0), Double.valueOf(0.0));
+        assertEquals(Double.valueOf(3.0), Double.valueOf(3.0));
+        assertEquals(Double.valueOf(Double.POSITIVE_INFINITY), Double.valueOf(Double.POSITIVE_INFINITY));
+        assertNotEquals(Double.valueOf(Double.NEGATIVE_INFINITY), Double.valueOf(Double.POSITIVE_INFINITY));
+        assertEquals(Double.valueOf(Double.NEGATIVE_INFINITY), Double.valueOf(Double.NEGATIVE_INFINITY));
+    }
+
+    @Test
+    public void randomDoubles() {
+        var random = new Random();
+        for (var i = 0; i < 10000; ++i) {
+            var n = random.nextLong();
+            var d = Double.longBitsToDouble(n);
+            if (Double.isNaN(d) || Double.isInfinite(d)) {
+                continue;
+            }
+            var actual = Double.parseDouble(Double.toString(d));
+            if (n != Double.doubleToLongBits(actual)) {
+                System.out.println(d + ", " + n + ", " + Double.doubleToLongBits(actual));
+            }
+        }
     }
 
     @Test
@@ -101,12 +137,33 @@ public class DoubleTest {
         assertEquals("0x1.0p-1022", Double.toHexString(0x1.0p-1022));
         assertEquals("0x0.8p-1022", Double.toHexString(0x0.8p-1022));
         assertEquals("0x0.001p-1022", Double.toHexString(0x0.001p-1022));
+        assertEquals("0x0.0p0", Double.toHexString(0.0D));
+        assertEquals("-0x0.0p0", Double.toHexString(-0.0D));
     }
 
     @Test
     public void compares() {
-        assertTrue(Double.compare(10, 5) > 0);
-        assertTrue(Double.compare(5, 10) < 0);
-        assertTrue(Double.compare(5, 5) == 0);
+        assertEquals(1, Double.compare(10, 5));
+        assertEquals(-1, Double.compare(5, 10));
+        assertEquals(0, Double.compare(5, 5));
+        assertEquals(0, Double.compare(0.0f, 0.0f));
+        assertEquals(1, Double.compare(Double.NaN, Double.POSITIVE_INFINITY));
+        assertEquals(-1, Double.compare(Double.POSITIVE_INFINITY, Double.NaN));
+        assertEquals(1, Double.compare(Double.NaN, 0.0));
+        assertEquals(-1, Double.compare(-0.0, Double.NaN));
+        assertEquals(1, Double.compare(0.0, -0.0));
+        assertEquals(-1, Double.compare(-0.0, 0.0));
+    }
+
+    @Test
+    public void testNaN() {
+        assertTrue(Double.isNaN(OTHER_NAN));
+        assertTrue(OTHER_NAN != OTHER_NAN);
+        assertTrue(OTHER_NAN != Double.NaN);
+        assertEquals(Double.valueOf(Double.NaN), Double.valueOf(Double.NaN));
+        assertEquals(Double.valueOf(OTHER_NAN), Double.valueOf(Double.NaN));
+        assertEquals(Double.valueOf(OTHER_NAN), Double.valueOf(OTHER_NAN));
+        assertNotEquals(Double.doubleToRawLongBits(OTHER_NAN), Double.doubleToRawLongBits(Double.NaN));
+        assertEquals(Double.doubleToLongBits(OTHER_NAN), Double.doubleToLongBits(Double.NaN));
     }
 }

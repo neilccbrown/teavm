@@ -15,6 +15,7 @@
  */
 package org.teavm.classlib.java.lang;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -25,10 +26,12 @@ import java.io.PrintStream;
 import java.util.Properties;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.teavm.junit.EachTestCompiledSeparately;
 import org.teavm.junit.SkipJVM;
 import org.teavm.junit.TeaVMTestRunner;
 
 @RunWith(TeaVMTestRunner.class)
+@EachTestCompiledSeparately
 public class SystemTest {
     @Test
     public void copiesArray() {
@@ -43,6 +46,28 @@ public class SystemTest {
     }
 
     @Test
+    public void copiesArrayPart() {
+        var a = new Object();
+        var b = new Object();
+        var src = new Object[] { a, b, a };
+        var dest = new Object[5];
+        System.arraycopy(src, 0, dest, 1, 3);
+        assertNull(dest[0]);
+        assertSame(a, dest[1]);
+        assertSame(b, dest[2]);
+        assertSame(a, dest[3]);
+        assertNull(dest[4]);
+
+        dest = new Object[5];
+        System.arraycopy(src, 1, dest, 0, 2);
+        assertSame(b, dest[0]);
+        assertSame(a, dest[1]);
+        assertNull(dest[2]);
+        assertNull(dest[3]);
+        assertNull(dest[4]);
+    }
+
+    @Test
     public void copiesPrimitiveArray() {
         int[] src = { 23, 24, 25 };
         int[] dest = new int[3];
@@ -50,6 +75,18 @@ public class SystemTest {
         assertEquals(23, dest[0]);
         assertEquals(24, dest[1]);
         assertEquals(25, dest[2]);
+    }
+
+    @Test
+    public void copiesPrimitiveArrayPart() {
+        var src = new int[] { 23, 24, 25 };
+        var dest = new int[5];
+        System.arraycopy(src, 0, dest, 1, 3);
+        assertArrayEquals(new int[] { 0, 23, 24, 25, 0 }, dest);
+
+        dest = new int[5];
+        System.arraycopy(src, 1, dest, 0, 2);
+        assertArrayEquals(new int[] { 24, 25, 0, 0, 0 }, dest);
     }
 
     @Test
@@ -148,5 +185,15 @@ public class SystemTest {
         assertNotNull(System.getProperty("java.version"));
         assertNull(System.getProperty("myprop"));
         assertEquals("bar", System.getProperty("myprop2"));
+    }
+
+    @Test
+    public void identityHashCode() {
+        assertEquals(0, System.identityHashCode(null));
+
+        Object o = new Object();
+        int hc = System.identityHashCode(o);
+        int hc1 = System.identityHashCode(o);
+        assertEquals(hc, hc1);
     }
 }

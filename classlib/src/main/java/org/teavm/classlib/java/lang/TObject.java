@@ -15,6 +15,7 @@
  */
 package org.teavm.classlib.java.lang;
 
+import org.teavm.backend.wasm.runtime.gc.WasmGCSupport;
 import org.teavm.classlib.PlatformDetector;
 import org.teavm.dependency.PluggableDependency;
 import org.teavm.interop.Address;
@@ -60,6 +61,9 @@ public class TObject {
     }
 
     static void monitorEnterSync(TObject o) {
+        if (Thread.currentThread() == null) {
+            return;
+        }
         if (o.monitor == null) {
             createMonitor(o);
         }
@@ -72,6 +76,9 @@ public class TObject {
     }
 
     static void monitorExitSync(TObject o) {
+        if (Thread.currentThread() == null) {
+            return;
+        }
         if (o.isEmptyMonitor() || o.monitor.owner != TThread.currentThread()) {
             throw new TIllegalMonitorStateException();
         }
@@ -185,6 +192,10 @@ public class TObject {
         if (monitor == null) {
             return true;
         }
+        if (PlatformDetector.isWebAssemblyGC()) {
+            // TODO: fix Monitor implementation and remove this block
+            return monitor.owner == null;
+        }
         if (monitor.owner == null
                 && (monitor.enteringThreads == null || monitor.enteringThreads.isEmpty())
                 && (monitor.notifyListeners == null || monitor.notifyListeners.isEmpty())) {
@@ -246,7 +257,22 @@ public class TObject {
     }
 
     final int identity() {
-        if (PlatformDetector.isLowLevel()) {
+        if (PlatformDetector.isWebAssemblyGC()) {
+            var identity = wasmGCIdentity();
+            if (identity < 0) {
+                var monitor = this.monitor;
+                if (monitor != null) {
+                    if (monitor.id < 0) {
+                        monitor.id = WasmGCSupport.nextObjectId() & 0x7ffffff;
+                    }
+                    return monitor.id;
+                } else {
+                    identity = WasmGCSupport.nextObjectId() & 0x7ffffff;
+                    setWasmGCIdentity(identity);
+                }
+            }
+            return identity;
+        } else if (PlatformDetector.isLowLevel()) {
             Monitor monitor = this.monitor;
             if (monitor == null) {
                 int hashCode = hashCodeLowLevel(this);
@@ -271,8 +297,13 @@ public class TObject {
         return Platform.getPlatformObject(this).getId();
     }
 
+    private native int wasmGCIdentity();
+
+    private native void setWasmGCIdentity(int identity);
+
     @DelegateTo("hashCodeLowLevelImpl")
     @NoSideEffects
+    @Unmanaged
     private static native int hashCodeLowLevel(TObject obj);
 
     @Unmanaged
@@ -282,6 +313,7 @@ public class TObject {
 
     @DelegateTo("setHashCodeLowLevelImpl")
     @NoSideEffects
+    @Unmanaged
     private static native void setHashCodeLowLevel(TObject obj, int value);
 
     @Unmanaged
@@ -321,6 +353,9 @@ public class TObject {
     @DelegateTo("cloneLowLevel")
     @PluggableDependency(ObjectDependencyPlugin.class)
     protected Object clone() throws TCloneNotSupportedException {
+        if (PlatformDetector.isWebAssemblyGC()) {
+            return cloneObject();
+        }
         if (!(this instanceof TCloneable) && Platform.getPlatformObject(this)
                 .getPlatformClass().getMetadata().getArrayItem() == null) {
             throw new TCloneNotSupportedException();
@@ -329,6 +364,8 @@ public class TObject {
         Platform.getPlatformObject(result).setId(Platform.nextObjectId());
         return result;
     }
+
+    private native TObject cloneObject();
 
     @SuppressWarnings("unused")
     private static RuntimeObject cloneLowLevel(RuntimeObject self) {
@@ -347,7 +384,7 @@ public class TObject {
             size = itemSize * array.size + headerSize.toInt();
         }
         if (size > skip) {
-            Allocator.moveMemoryBlock(self.toAddress().add(skip), copy.toAddress().add(skip), size - skip);
+            Address.moveMemoryBlock(self.toAddress().add(skip), copy.toAddress().add(skip), size - skip);
         }
         return copy;
     }
@@ -419,7 +456,7 @@ public class TObject {
     @Async
     private native void waitImpl(long timeout, int nanos) throws TInterruptedException;
 
-    public final void waitImpl(long timeout, int nanos, AsyncCallback<Void> callback) {
+    final void waitImpl(long timeout, int nanos, AsyncCallback<Void> callback) {
         Monitor monitor = this.monitor;
         final NotifyListenerImpl listener = new NotifyListenerImpl(this, callback, monitor.count);
         if (monitor.notifyListeners == null) {

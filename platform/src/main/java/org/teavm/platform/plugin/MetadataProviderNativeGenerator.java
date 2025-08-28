@@ -15,13 +15,11 @@
  */
 package org.teavm.platform.plugin;
 
-import java.io.IOException;
 import org.teavm.backend.javascript.codegen.SourceWriter;
 import org.teavm.backend.javascript.spi.Generator;
 import org.teavm.backend.javascript.spi.GeneratorContext;
 import org.teavm.model.MethodReference;
 import org.teavm.platform.metadata.MetadataGenerator;
-import org.teavm.platform.metadata.Resource;
 
 class MetadataProviderNativeGenerator implements Generator {
     private MetadataGenerator generator;
@@ -33,12 +31,12 @@ class MetadataProviderNativeGenerator implements Generator {
     }
 
     @Override
-    public void generate(GeneratorContext context, SourceWriter writer, MethodReference methodRef) throws IOException {
-        DefaultMetadataGeneratorContext metadataContext = new DefaultMetadataGeneratorContext(context.getClassSource(),
-                context.getClassLoader(), context.getProperties(), context);
+    public void generate(GeneratorContext context, SourceWriter writer, MethodReference methodRef) {
+        var metadataContext = new DefaultMetadataGeneratorContext(context.getClassSource(),
+                context.getResourceProvider(), context.getClassLoader(), context.getProperties(), context);
 
         // Generate resource loader
-        Resource resource = generator.generateMetadata(metadataContext, forMethod);
+        var resource = generator.generateMetadata(metadataContext, forMethod);
         writer.append("return ");
         ResourceWriterHelper.write(writer, resource);
         writer.append(';').softNewLine();

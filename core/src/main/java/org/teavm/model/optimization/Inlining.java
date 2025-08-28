@@ -47,10 +47,12 @@ import org.teavm.model.Program;
 import org.teavm.model.ProgramReader;
 import org.teavm.model.TextLocation;
 import org.teavm.model.TryCatchBlock;
+import org.teavm.model.ValueType;
 import org.teavm.model.VariableReader;
 import org.teavm.model.analysis.ClassInference;
 import org.teavm.model.instructions.AbstractInstructionReader;
 import org.teavm.model.instructions.AssignInstruction;
+import org.teavm.model.instructions.CastInstruction;
 import org.teavm.model.instructions.ExitInstruction;
 import org.teavm.model.instructions.InvocationType;
 import org.teavm.model.instructions.InvokeInstruction;
@@ -59,7 +61,6 @@ import org.teavm.model.util.BasicBlockMapper;
 import org.teavm.model.util.InstructionVariableMapper;
 import org.teavm.model.util.ProgramUtils;
 import org.teavm.model.util.TransitionExtractor;
-import org.teavm.runtime.Fiber;
 
 public class Inlining {
     private IntArrayList depthsByBlock;
@@ -175,6 +176,7 @@ public class Inlining {
         instructionsToSkip = null;
 
         new UnreachableBasicBlockEliminator().optimize(program);
+        strategy.methodChanged(method);
     }
 
     private boolean applyOnce(Program program, MethodReference method) {
@@ -367,8 +369,8 @@ public class Inlining {
                     continue;
                 }
 
-                if (invoke.getMethod().getClassName().equals(Fiber.class.getName())
-                        != method.getClassName().equals(Fiber.class.getName())) {
+                if (invoke.getMethod().getClassName().equals("org.teavm.runtime.Fiber")
+                        != method.getClassName().equals("org.teavm.runtime.Fiber")) {
                     continue;
                 }
                 if (!filter.apply(invoke.getMethod())) {
@@ -445,7 +447,11 @@ public class Inlining {
                         implementations.addAll(knownImplementations);
                     }
                 } else {
-                    for (String className : classInference.classesOf(invoke.getInstance().getIndex())) {
+                    for (var type : classInference.typesOf(invoke.getInstance().getIndex())) {
+                        if (!(type instanceof ValueType.Object)) {
+                            continue;
+                        }
+                        var className = ((ValueType.Object) type).getClassName();
                         MethodReference rawMethod = new MethodReference(className, invoke.getMethod().getDescriptor());
                         MethodReader resolvedMethod = dependencyInfo.getClassSource().resolveImplementation(rawMethod);
                         if (resolvedMethod != null) {
@@ -455,8 +461,23 @@ public class Inlining {
                 }
 
                 if (implementations.size() == 1) {
-                    invoke.setType(InvocationType.SPECIAL);
-                    invoke.setMethod(implementations.iterator().next());
+                    var implementation = implementations.iterator().next();
+                    var implementationMethod = getMethod(implementation);
+                    if (implementationMethod != null && !implementationMethod.hasModifier(ElementModifier.ABSTRACT)) {
+                        invoke.setType(InvocationType.SPECIAL);
+                        invoke.setMethod(implementation);
+
+                        if (!implementation.getName().equals(invoke.getMethod().getClassName())) {
+                            var cast = new CastInstruction();
+                            cast.setWeak(true);
+                            cast.setValue(invoke.getInstance());
+                            cast.setReceiver(program.createVariable());
+                            cast.setLocation(invoke.getLocation());
+                            cast.setTargetType(ValueType.object(implementation.getClassName()));
+                            invoke.insertPrevious(cast);
+                            invoke.setInstance(cast.getReceiver());
+                        }
+                    }
                 }
             }
         }

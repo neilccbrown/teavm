@@ -22,11 +22,16 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import java.io.UnsupportedEncodingException;
+import java.util.Locale;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.teavm.junit.EachTestCompiledSeparately;
+import org.teavm.junit.SkipPlatform;
 import org.teavm.junit.TeaVMTestRunner;
+import org.teavm.junit.TestPlatform;
 
 @RunWith(TeaVMTestRunner.class)
+@EachTestCompiledSeparately
 public class StringTest {
     @Test
     public void charsExtracted() {
@@ -102,7 +107,7 @@ public class StringTest {
     }
 
     @Test
-    public void endsWithWorkds() {
+    public void endsWithWorks() {
         assertTrue("12345".endsWith("45"));
     }
 
@@ -192,6 +197,9 @@ public class StringTest {
     @Test
     public void sequenceReplaced() {
         assertEquals("ba", "aaa".replace("aa", "b"));
+        assertEquals("xaxaxax", "aaa".replace("", "x"));
+        assertEquals("axc", "abc".replace("b", "x"));
+        assertEquals("abc", "abc".replace("bc", "bc"));
     }
 
     @Test
@@ -199,6 +207,34 @@ public class StringTest {
         assertEquals("ab", "  ab   ".trim());
         assertEquals("ab", "ab".trim());
         assertEquals("", "  ".trim());
+    }
+
+    @Test
+    public void stripWorks() {
+        assertEquals("ab", "  ab   ".strip());
+        assertEquals("ab", "ab".strip());
+        assertEquals("", "  \t".strip());
+        assertEquals("ab", "\t\n \u2008ab\r\f".strip());
+    }
+
+    @Test
+    public void stripLeadingWorks() {
+        assertEquals("ab   ", "  ab   ".stripLeading());
+        assertEquals("ab   ", "ab   ".stripLeading());
+        assertEquals("ab", "ab".stripLeading());
+        assertEquals("a b", "a b".stripLeading());
+        assertEquals("", "  \t".stripLeading());
+        assertEquals("ab", "\t\n \u2008\r\fab".stripLeading());
+    }
+
+    @Test
+    public void stripTrailingWorks() {
+        assertEquals("  ab", "  ab   ".stripTrailing());
+        assertEquals("  ab", "  ab".stripTrailing());
+        assertEquals("ab", "ab".stripTrailing());
+        assertEquals("a b", "a b".stripTrailing());
+        assertEquals("", "  \t".stripTrailing());
+        assertEquals("ab", "ab\t\n \u2008\r\f".stripTrailing());
     }
 
     @Test
@@ -277,17 +313,36 @@ public class StringTest {
     }
 
     @Test
-    public void makesLowerCase() {
+    public void convertsCase() {
         assertEquals("foo bar", "FoO bAr".toLowerCase());
+        assertEquals("FOO BAR", "FoO bAr".toUpperCase());
+    }
+
+    private String common = "i̇stanbul";
+    private String turkish = "istanbul";
+
+    @Test
+    @SkipPlatform({ TestPlatform.C, TestPlatform.WEBASSEMBLY, TestPlatform.WASI, TestPlatform.WEBASSEMBLY_GC })
+    public void convertsCaseLocaled() {
+        assertEquals(turkish, "İstanbul".toLowerCase(new Locale("tr", "TR")));
+        assertEquals(common, "İstanbul".toLowerCase(Locale.US));
+        assertNotEquals(turkish, common);
+        assertEquals("İSTANBUL", common.toUpperCase(Locale.US));
+        assertEquals("İSTANBUL", turkish.toUpperCase(new Locale("tr", "TR")));
+        assertNotEquals(common.toUpperCase(Locale.US), turkish.toUpperCase(new Locale("tr", "TR")));
+        assertEquals(common.toUpperCase(Locale.US), common.toUpperCase(Locale.CANADA));
+        assertEquals(common.toUpperCase(Locale.US), common.toUpperCase(Locale.ROOT));
     }
 
     @Test
+    @SkipPlatform({ TestPlatform.C, TestPlatform.WEBASSEMBLY, TestPlatform.WASI })
     public void interns() {
         assertSame("xabc".substring(1).intern(), "abcx".substring(0, 3).intern());
         assertSame("xabc".substring(1).intern(), "abc");
     }
 
     @Test
+    @SkipPlatform({ TestPlatform.C, TestPlatform.WEBASSEMBLY, TestPlatform.WASI })
     public void internsConstants() {
         assertSame("abc", ("a" + "bc").intern());
     }
@@ -319,5 +374,40 @@ public class StringTest {
         assertTrue(new String(new char[] { ' ', ' ' }).isBlank());
         assertFalse(new String(new char[] { ' ', 'x', ' ' }).isBlank());
         assertFalse(new String(new char[] { 'a', ' ' }).isBlank());
-    }    
+    }
+
+    @Test
+    public void testChars() {
+        assertEquals(0, "".chars().toArray().length);
+        assertArrayEquals(new int[] {'A', 'B', 'C', '1', '2', '3'}, "ABC123".chars().toArray());
+    }
+
+    @Test
+    public void codePointsStream() {
+        assertEquals(0, "".codePoints().toArray().length);
+        assertArrayEquals(new int[] {'A', 'B', 'C', '1', '2', '3'}, "ABC123".chars().toArray());
+
+        assertArrayEquals(new int[] { 969356 }, new String(new char[] { (char) 56178, (char) 56972 })
+                .codePoints().toArray());
+        assertArrayEquals(new int[] { 56972, 56178 }, new String(new char[] { (char) 56972, (char) 56178 })
+                .codePoints().toArray());
+        assertArrayEquals(new int[] { 56178 }, String.valueOf((char) 56178).codePoints().toArray());
+    }
+    
+    @Test
+    public void translateEscapes() {
+        assertEquals("abc", "abc".translateEscapes());
+        assertEquals("\n\r\t\n", "\\n\\r\\t\\12".translateEscapes());
+    }
+    
+    @Test
+    public void stripIndent() {
+        assertEquals("abc", "abc".stripIndent());
+        assertEquals("abc", "  abc".stripIndent());
+        assertEquals("abc\ndef", " abc\n def".stripIndent());
+        assertEquals("abc\n\ndef\n", " abc\n \n def\n ".stripIndent());
+        assertEquals("abc\n\ndef\n", " abc\r\n \n def\r ".stripIndent());
+        assertEquals("", " ".stripIndent());
+        assertEquals("\n", " \n ".stripIndent());
+    }
 }

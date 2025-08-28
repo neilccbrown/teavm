@@ -21,8 +21,8 @@ import java.io.StringReader;
 import org.junit.Test;
 import org.mozilla.javascript.CompilerEnvirons;
 import org.mozilla.javascript.Context;
+import org.teavm.backend.javascript.codegen.OutputSourceWriterBuilder;
 import org.teavm.backend.javascript.codegen.SourceWriter;
-import org.teavm.backend.javascript.codegen.SourceWriterBuilder;
 
 public class AstWriterTest {
     private StringBuilder sb = new StringBuilder();
@@ -31,11 +31,11 @@ public class AstWriterTest {
     private AstWriter writerWithGlobals;
 
     public AstWriterTest() {
-        var builder = new SourceWriterBuilder(null);
+        var builder = new OutputSourceWriterBuilder(null);
         builder.setMinified(true);
         sourceWriter = builder.build(sb);
         writer = new AstWriter(sourceWriter, null);
-        writerWithGlobals = new AstWriter(sourceWriter, name -> prec -> sourceWriter.append("globals.").append(name));
+        writerWithGlobals = new AstWriter(sourceWriter, name -> (w, prec) -> w.append("globals.").append(name));
     }
 
     @Test
@@ -253,6 +253,11 @@ public class AstWriterTest {
     @Test
     public void writesDelete() throws IOException {
         assertEquals("delete a.b;", transform("delete a.b;"));
+    }
+
+    @Test
+    public void writesDebugger() throws IOException {
+        assertEquals("debugger;debugger;", transform("debugger;  debugger;"));
     }
 
     @Test

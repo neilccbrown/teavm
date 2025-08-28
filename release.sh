@@ -17,26 +17,27 @@
 mkdir -p build-dir
 
 git fetch
-git archive release-0.8.x | tar -x -C build-dir || { echo 'Git archive failed' ; exit 1; }
+git archive HEAD | tar -x -C build-dir || { echo 'Git archive failed' ; exit 1; }
 
 TEAVM_RELEASE_VERSION=$1
 
 function release_teavm {
   echo "Building version $TEAVM_RELEASE_VERSION"
 
+  export LC_ALL=C
   GRADLE="./gradlew"
   GRADLE+=" --no-daemon --no-configuration-cache --stacktrace"
   GRADLE+=" -Pteavm.mavenCentral.publish=true"
   GRADLE+=" -Pteavm.project.version=$TEAVM_RELEASE_VERSION"
-  GRADLE+=" -Psigning.keyId=$TEAVM_GPG_KEY_ID"
-  GRADLE+=" -Psigning.password=$TEAVM_GPG_PASSWORD"
-  GRADLE+=" -Psigning.secretKeyRingFile=$HOME/.gnupg/secring.gpg"
+  GRADLE+=" -Pteavm.publish.gpg.keyName=$TEAVM_GPG_KEY_ID"
+  GRADLE+=" -Pteavm.publish.gpg.password=$TEAVM_GPG_PASSWORD"
+  GRADLE+=" -Pteavm.publish.gpg.secretKeyRingFile=$HOME/.gnupg/secring.gpg"
   GRADLE+=" -PossrhUsername=$TEAVM_SONATYPE_LOGIN"
   GRADLE+=" -PossrhPassword=$TEAVM_SONATYPE_PASSWORD"
   GRADLE+=" -Pteavm.idea.publishToken=$TEAVM_INTELLIJ_TOKEN"
 
   $GRADLE build -x test || { echo 'Build failed' ; return 1; }
-  $GRADLE --max-workers 1 publish publishPlugin publishPlugins || { echo 'Release failed' ; return 1; }
+  $GRADLE publishAllPublicationsToTeavmRepository jreleaserSign jreleaserDeploy publishPlugin publishPlugins || { echo 'Release failed' ; return 1; }
 
   return 0
 }

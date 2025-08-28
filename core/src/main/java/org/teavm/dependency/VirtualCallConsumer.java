@@ -15,17 +15,22 @@
  */
 package org.teavm.dependency;
 
+import com.carrotsearch.hppc.IntHashSet;
+import com.carrotsearch.hppc.IntSet;
 import java.util.BitSet;
 import org.teavm.model.CallLocation;
 import org.teavm.model.MethodDescriptor;
+import org.teavm.model.ValueType;
 
 class VirtualCallConsumer implements DependencyConsumer {
+    private static final int SMALL_TYPES_THRESHOLD = 16;
     private final MethodDescriptor methodDesc;
     private final DependencyAnalyzer analyzer;
     private final DependencyNode[] parameters;
     private final DependencyNode result;
     private final CallLocation location;
-    private final BitSet knownTypes = new BitSet();
+    private IntSet smallKnownTypes;
+    private BitSet knownTypes;
     private DependencyGraphBuilder.ExceptionConsumer exceptionConsumer;
     private DependencyTypeFilter filter;
     private boolean isPolymorphic;
@@ -34,7 +39,7 @@ class VirtualCallConsumer implements DependencyConsumer {
     VirtualCallConsumer(String filterClass, MethodDescriptor methodDesc, DependencyAnalyzer analyzer,
             DependencyNode[] parameters, DependencyNode result, CallLocation location,
             DependencyGraphBuilder.ExceptionConsumer exceptionConsumer) {
-        this.filter = analyzer.getSuperClassFilter(filterClass);
+        this.filter = analyzer.getSuperClassFilter(ValueType.object(filterClass));
         this.methodDesc = methodDesc;
         this.analyzer = analyzer;
         this.parameters = parameters;
@@ -43,21 +48,48 @@ class VirtualCallConsumer implements DependencyConsumer {
         this.exceptionConsumer = exceptionConsumer;
     }
 
+    private boolean addKnownType(int index) {
+        if (knownTypes != null) {
+            if (knownTypes.get(index)) {
+                return false;
+            } else {
+                knownTypes.set(index);
+                return true;
+            }
+        }
+        if (smallKnownTypes == null) {
+            smallKnownTypes = new IntHashSet();
+        }
+        if (smallKnownTypes.add(index)) {
+            if (smallKnownTypes.size() > SMALL_TYPES_THRESHOLD) {
+                knownTypes = new BitSet();
+                for (var cursor : smallKnownTypes) {
+                    knownTypes.set(cursor.value);
+                }
+                smallKnownTypes = null;
+            }
+            return true;
+        }
+        return false;
+    }
+
     @Override
     public void consume(DependencyType type) {
         if (!filter.match(type)) {
             return;
         }
 
-        if (knownTypes.get(type.index)) {
+        if (!addKnownType(type.index)) {
             return;
         }
-        knownTypes.set(type.index);
 
-        String className = type.getName();
-
-        if (className.startsWith("[")) {
+        String className;
+        if (type.getValueType() instanceof ValueType.Object) {
+            className = ((ValueType.Object) type.getValueType()).getClassName();
+        } else if (type.getValueType() instanceof ValueType.Array) {
             className = "java.lang.Object";
+        } else {
+            return;
         }
 
         MethodDependency methodDep = analyzer.linkMethod(className, methodDesc);
@@ -77,7 +109,7 @@ class VirtualCallConsumer implements DependencyConsumer {
             DependencyNode[] targetParams = methodDep.getVariables();
             if (parameters[0] != null && targetParams[0] != null) {
                 parameters[0].connect(targetParams[0],
-                        analyzer.getSuperClassFilter(methodDep.getMethod().getOwnerName()));
+                        analyzer.getSuperClassFilter(ValueType.object(methodDep.getMethod().getOwnerName())));
             }
             for (int i = 1; i < parameters.length; ++i) {
                 if (parameters[i] != null && targetParams[i] != null) {

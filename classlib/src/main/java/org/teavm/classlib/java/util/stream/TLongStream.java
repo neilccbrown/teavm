@@ -30,6 +30,7 @@ import java.util.function.LongToIntFunction;
 import java.util.function.LongUnaryOperator;
 import java.util.function.ObjLongConsumer;
 import java.util.function.Supplier;
+import org.teavm.classlib.java.util.TLongSummaryStatistics;
 import org.teavm.classlib.java.util.stream.longimpl.TArrayLongStreamImpl;
 import org.teavm.classlib.java.util.stream.longimpl.TEmptyLongStreamImpl;
 import org.teavm.classlib.java.util.stream.longimpl.TGenerateLongStream;
@@ -42,7 +43,8 @@ import org.teavm.classlib.java.util.stream.longimpl.TSingleLongStreamImpl;
 import org.teavm.classlib.java.util.stream.longimpl.TSpecializedConcatLongStream;
 
 public interface TLongStream extends TBaseStream<Long, TLongStream> {
-    interface Builder {
+    interface Builder extends LongConsumer {
+        @Override
         void accept(long t);
 
         default Builder add(long t) {
@@ -65,6 +67,14 @@ public interface TLongStream extends TBaseStream<Long, TLongStream> {
 
     TLongStream flatMap(LongFunction<? extends TLongStream> mapper);
 
+    default TLongStream mapMulti(LongMapMultiConsumer mapper) {
+        return flatMap(e -> {
+            Builder builder = builder();
+            mapper.accept(e, builder);
+            return builder.build();
+        });
+    }
+
     TLongStream distinct();
 
     TLongStream sorted();
@@ -72,6 +82,10 @@ public interface TLongStream extends TBaseStream<Long, TLongStream> {
     TLongStream peek(LongConsumer action);
 
     TLongStream limit(long maxSize);
+
+    TLongStream takeWhile(LongPredicate predicate);
+
+    TLongStream dropWhile(LongPredicate predicate);
 
     TLongStream skip(long n);
 
@@ -96,6 +110,8 @@ public interface TLongStream extends TBaseStream<Long, TLongStream> {
     long count();
 
     OptionalDouble average();
+
+    TLongSummaryStatistics summaryStatistics();
 
     boolean anyMatch(LongPredicate predicate);
 
@@ -137,6 +153,10 @@ public interface TLongStream extends TBaseStream<Long, TLongStream> {
         return new TIterateLongStream(seed, f);
     }
 
+    static TLongStream iterate(long seed, LongPredicate pr, LongUnaryOperator f) {
+        return new TIterateLongStream(seed, pr, f);
+    }
+
     static TLongStream generate(LongSupplier s) {
         return new TGenerateLongStream(s);
     }
@@ -155,5 +175,10 @@ public interface TLongStream extends TBaseStream<Long, TLongStream> {
         } else {
             return new TGenericConcatLongStream(a, b);
         }
+    }
+
+    @FunctionalInterface
+    interface LongMapMultiConsumer {
+        void accept(long value, LongConsumer lc);
     }
 }

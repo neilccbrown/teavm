@@ -26,12 +26,13 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.teavm.backend.c.CTarget;
 import org.teavm.backend.c.generate.CNameProvider;
 import org.teavm.cache.InMemoryMethodNodeCache;
@@ -44,9 +45,9 @@ import org.teavm.model.ClassReader;
 import org.teavm.model.ClassReaderSource;
 import org.teavm.model.PreOptimizingClassHolderSource;
 import org.teavm.model.ReferenceCache;
-import org.teavm.parsing.ClasspathResourceMapper;
-import org.teavm.parsing.resource.ClasspathResourceReader;
+import org.teavm.parsing.RenamingResourceMapper;
 import org.teavm.parsing.resource.ResourceClassHolderMapper;
+import org.teavm.parsing.resource.ResourceProvider;
 import org.teavm.tooling.EmptyTeaVMToolLog;
 import org.teavm.tooling.TeaVMProblemRenderer;
 import org.teavm.tooling.TeaVMToolLog;
@@ -65,7 +66,6 @@ public class IncrementalCBuilder {
     private String[] classPath;
     private int minHeapSize = 4;
     private int maxHeapSize = 128;
-    private boolean longjmpSupported = true;
     private boolean lineNumbersGenerated;
     private String targetPath;
     private String externalTool;
@@ -137,10 +137,6 @@ public class IncrementalCBuilder {
 
     public void setMainFunctionName(String mainFunctionName) {
         this.mainFunctionName = mainFunctionName;
-    }
-
-    public void setLongjmpSupported(boolean longjmpSupported) {
-        this.longjmpSupported = longjmpSupported;
     }
 
     public void addProgressHandler(ProgressHandler handler) {
@@ -317,10 +313,10 @@ public class IncrementalCBuilder {
         fireBuildStarted();
         reportProgress(0);
 
-        ClassLoader classLoader = initClassLoader();
-        ClasspathResourceReader reader = new ClasspathResourceReader(classLoader);
+        var classLoader = initClassLoader();
+        var reader = ResourceProvider.ofClassPath(Stream.of(classPath).map(File::new).collect(Collectors.toList()));
         ResourceClassHolderMapper rawMapper = new ResourceClassHolderMapper(reader, referenceCache);
-        Function<String, ClassHolder> classPathMapper = new ClasspathResourceMapper(classLoader, referenceCache,
+        Function<String, ClassHolder> classPathMapper = new RenamingResourceMapper(reader, referenceCache,
                 rawMapper);
         classSource.setProvider(name -> PreOptimizingClassHolderSource.optimize(classPathMapper, name));
 
@@ -332,6 +328,7 @@ public class IncrementalCBuilder {
                 .setReferenceCache(referenceCache)
                 .setClassLoader(classLoader)
                 .setClassSource(classSource)
+                .setResourceProvider(reader)
                 .setDependencyAnalyzerFactory(FastDependencyAnalyzer::new)
                 .setClassSourcePacker(this::packClasses)
                 .setStrict(true)
@@ -342,7 +339,6 @@ public class IncrementalCBuilder {
         cTarget.setMinHeapSize(minHeapSize * 1024 * 1024);
         cTarget.setMaxHeapSize(maxHeapSize * 1024 * 1024);
         cTarget.setLineNumbersGenerated(lineNumbersGenerated);
-        cTarget.setLongjmpUsed(longjmpSupported);
         cTarget.setHeapDump(true);
         vm.setOptimizationLevel(TeaVMOptimizationLevel.SIMPLE);
         vm.setCacheStatus(classSource);
@@ -352,7 +348,10 @@ public class IncrementalCBuilder {
         vm.installPlugins();
 
         vm.setLastKnownClasses(lastReachedClasses);
-        vm.entryPoint(mainClass, mainFunctionName != null ? mainFunctionName : "main");
+        vm.setEntryPoint(mainClass);
+        if (mainFunctionName != null) {
+            vm.setEntryPointName(mainFunctionName);
+        }
 
         log.info("Starting build");
         progressListener.last = 0;
@@ -360,6 +359,7 @@ public class IncrementalCBuilder {
         vm.build(buildTarget, "");
 
         postBuild(vm, startTime);
+        reader.close();
 
         runExternalTool();
     }
@@ -533,7 +533,7 @@ public class IncrementalCBuilder {
     }
 
     private void fireBuildComplete(TeaVM vm) {
-        SimpleBuildResult result = new SimpleBuildResult(vm, Collections.emptyList());
+        SimpleBuildResult result = new SimpleBuildResult(vm);
         for (BuilderListener listener : listeners) {
             listener.compilationComplete(result);
         }

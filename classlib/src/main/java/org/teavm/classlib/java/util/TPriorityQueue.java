@@ -17,7 +17,6 @@ package org.teavm.classlib.java.util;
 
 import java.util.Arrays;
 import org.teavm.classlib.java.io.TSerializable;
-import org.teavm.classlib.java.lang.TComparable;
 import org.teavm.classlib.java.lang.TIllegalArgumentException;
 import org.teavm.classlib.java.lang.TIllegalStateException;
 import org.teavm.classlib.java.lang.TNullPointerException;
@@ -49,8 +48,8 @@ public class TPriorityQueue<E> extends TAbstractQueue<E> implements TSerializabl
             initFromSortedSet((TSortedSet<? extends E>) c);
         } else {
             data = new Object[c.size()];
-            fillFromCollection(c);
             setComparator(null);
+            fillFromCollection(c);
         }
     }
 
@@ -83,6 +82,10 @@ public class TPriorityQueue<E> extends TAbstractQueue<E> implements TSerializabl
         version = 0;
     }
 
+    public TPriorityQueue(TComparator<? super E> comparator) {
+        this(16, comparator);
+    }
+
     public TPriorityQueue(int initialCapacity, TComparator<? super E> comparator) {
         if (initialCapacity < 1) {
             throw new TIllegalArgumentException();
@@ -95,15 +98,7 @@ public class TPriorityQueue<E> extends TAbstractQueue<E> implements TSerializabl
     private void setComparator(TComparator<? super E> comparator) {
         this.originalComparator = comparator;
         if (comparator == null) {
-            comparator = new TComparator<Object>() {
-                @Override public int compare(Object o1, Object o2) {
-                    if (o1 instanceof TComparable) {
-                        return ((TComparable<Object>) o1).compareTo(o2);
-                    } else {
-                        return -((TComparable<Object>) o2).compareTo(o1);
-                    }
-                }
-            };
+            comparator = TComparator.NaturalOrder.instance();
         }
         this.comparator = (TComparator<Object>) comparator;
     }
@@ -174,6 +169,9 @@ public class TPriorityQueue<E> extends TAbstractQueue<E> implements TSerializabl
             @SuppressWarnings("unchecked")@Override public E next() {
                 if (version != knownVersion) {
                     throw new TConcurrentModificationException();
+                }
+                if (index >= size) {
+                    throw new TNoSuchElementException();
                 }
                 removeIndex = index;
                 return (E) data[index++];

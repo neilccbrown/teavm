@@ -38,11 +38,12 @@ import java.util.TimeZone;
 import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.teavm.junit.SkipPlatform;
 import org.teavm.junit.TeaVMTestRunner;
-import org.teavm.junit.WholeClassCompilation;
+import org.teavm.junit.TestPlatform;
 
 @RunWith(TeaVMTestRunner.class)
-@WholeClassCompilation
+@SkipPlatform(TestPlatform.WASI)
 public class MessageFormatTest {
     private MessageFormat format1;
     private MessageFormat format2;
@@ -109,7 +110,7 @@ public class MessageFormatTest {
         buffer.append(" def ");
         buffer.append(DateFormat.getDateInstance().format(date));
         buffer.append(" ghi ");
-        buffer.append(NumberFormat.getInstance().format(new Double(7.2)));
+        buffer.append(NumberFormat.getInstance().format(7.2));
         buffer.append(" jkl high mnop 123");
         assertTrue("Wrong answer:\n" + result + "\n" + buffer, result.equals(buffer.toString()));
 

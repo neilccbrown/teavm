@@ -18,6 +18,7 @@ package org.teavm.classlib.java.lang;
 public final class TStrictMath extends TObject {
     public static final double E = 2.71828182845904523536;
     public static final double PI = 3.14159265358979323846;
+    public static final double TAU = 2 * PI;
 
     private TStrictMath() {
     }
@@ -104,6 +105,94 @@ public final class TStrictMath extends TObject {
 
     public static long round(double a) {
         return TMath.round(a);
+    }
+
+    public static int floorDiv(int a, int b) {
+        return TMath.floorDiv(a, b);
+    }
+
+    public static long floorDiv(long a, int b) {
+        return TMath.floorDiv(a, b);
+    }
+
+    public static long floorDiv(long a, long b) {
+        return TMath.floorDiv(a, b);
+    }
+
+    public static int floorMod(int a, int b) {
+        return TMath.floorMod(a, b);
+    }
+
+    public static int floorMod(long a, int b) {
+        return TMath.floorMod(a, b);
+    }
+
+    public static long floorMod(long a, long b) {
+        return TMath.floorMod(a, b);
+    }
+
+    public static int addExact(int a, int b) {
+        return TMath.addExact(a, b);
+    }
+
+    public static long addExact(long a, long b) {
+        return TMath.addExact(a, b);
+    }
+
+    public static int subtractExact(int a, int b) {
+        return TMath.subtractExact(a, b);
+    }
+
+    public static long subtractExact(long a, long b) {
+        return TMath.subtractExact(a, b);
+    }
+
+    public static int multiplyExact(int a, int b) {
+        return TMath.multiplyExact(a, b);
+    }
+
+    public static long multiplyExact(long a, int b) {
+        return TMath.multiplyExact(a, b);
+    }
+
+    public static long multiplyExact(long a, long b) {
+        return TMath.multiplyExact(a, b);
+    }
+
+    public static int divideExact(int a, int b) {
+        return TMath.divideExact(a, b);
+    }
+
+    public static long divideExact(long a, long b) {
+        return TMath.divideExact(a, b);
+    }
+
+    public static int incrementExact(int a) {
+        return TMath.incrementExact(a);
+    }
+
+    public static long incrementExact(long a) {
+        return TMath.incrementExact(a);
+    }
+
+    public static int decrementExact(int a) {
+        return TMath.decrementExact(a);
+    }
+
+    public static long decrementExact(long a) {
+        return TMath.decrementExact(a);
+    }
+
+    public static int negateExact(int a) {
+        return TMath.negateExact(a);
+    }
+
+    public static long negateExact(long a) {
+        return TMath.negateExact(a);
+    }
+
+    public static int toIntExact(long value) {
+        return TMath.toIntExact(value);
     }
 
     public static double random() {
@@ -228,5 +317,21 @@ public final class TStrictMath extends TObject {
 
     public static float nextUp(float f) {
         return TMath.nextUp(f);
+    }
+
+    public static int clamp(long value, int min, int max) {
+        return TMath.clamp(value, min, max);
+    }
+
+    public static long clamp(long value, long min, long max) {
+        return TMath.clamp(value, min, max);
+    }
+
+    public static double clamp(double value, double min, double max) {
+        return TMath.clamp(value, min, max);
+    }
+
+    public static float clamp(float value, float min, float max) {
+        return TMath.clamp(value, min, max);
     }
 }

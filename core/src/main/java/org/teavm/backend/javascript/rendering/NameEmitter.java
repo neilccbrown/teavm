@@ -15,8 +15,8 @@
  */
 package org.teavm.backend.javascript.rendering;
 
-import java.io.IOException;
+import org.teavm.backend.javascript.codegen.SourceWriter;
 
 public interface NameEmitter {
-    void emit(int precedence) throws IOException;
+    void emit(SourceWriter writer, int precedence);
 }

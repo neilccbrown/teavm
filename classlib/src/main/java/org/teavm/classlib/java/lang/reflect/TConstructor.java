@@ -15,16 +15,15 @@
  */
 package org.teavm.classlib.java.lang.reflect;
 
+import org.teavm.classlib.PlatformDetector;
 import org.teavm.classlib.impl.reflection.Converter;
 import org.teavm.classlib.impl.reflection.Flags;
-import org.teavm.classlib.impl.reflection.JSCallable;
+import org.teavm.classlib.impl.reflection.MethodCaller;
 import org.teavm.classlib.java.lang.TClass;
 import org.teavm.classlib.java.lang.TIllegalAccessException;
 import org.teavm.classlib.java.lang.TIllegalArgumentException;
 import org.teavm.classlib.java.lang.TInstantiationException;
 import org.teavm.classlib.java.lang.TObject;
-import org.teavm.platform.PlatformObject;
-import org.teavm.platform.PlatformSequence;
 
 public class TConstructor<T> extends TAccessibleObject implements TMember {
     private TClass<T> declaringClass;
@@ -32,16 +31,16 @@ public class TConstructor<T> extends TAccessibleObject implements TMember {
     private int modifiers;
     private int accessLevel;
     private TClass<?>[] parameterTypes;
-    private JSCallable callable;
+    private MethodCaller caller;
 
     public TConstructor(TClass<T> declaringClass, String name, int modifiers, int accessLevel,
-            TClass<?>[] parameterTypes, JSCallable callable) {
+            TClass<?>[] parameterTypes, MethodCaller caller) {
         this.declaringClass = declaringClass;
         this.name = name;
         this.modifiers = modifiers;
         this.accessLevel = accessLevel;
         this.parameterTypes = parameterTypes;
-        this.callable = callable;
+        this.caller = caller;
     }
 
     @Override
@@ -96,7 +95,7 @@ public class TConstructor<T> extends TAccessibleObject implements TMember {
         if ((modifiers & Flags.ABSTRACT) != 0) {
             throw new TInstantiationException();
         }
-        if (callable == null) {
+        if (caller == null) {
             throw new TIllegalAccessException();
         }
 
@@ -113,10 +112,13 @@ public class TConstructor<T> extends TAccessibleObject implements TMember {
             }
         }
 
-        PlatformSequence<PlatformObject> jsArgs = Converter.arrayFromJava(initargs);
-        PlatformObject instance = declaringClass.newEmptyInstance();
-        callable.call(instance, jsArgs);
-        return (T) Converter.toJava(instance);
+        if (PlatformDetector.isJavaScript()) {
+            var instance = Converter.toJava(declaringClass.newEmptyInstance());
+            caller.call(instance, initargs);
+            return (T) instance;
+        } else {
+            return (T) caller.call(null, initargs);
+        }
     }
 
     public boolean isVarArgs() {

@@ -16,6 +16,7 @@
 package org.teavm.classlib.java.lang;
 
 import org.teavm.backend.javascript.spi.GeneratedBy;
+import org.teavm.backend.wasm.WasmRuntime;
 import org.teavm.backend.wasm.runtime.WasmSupport;
 import org.teavm.classlib.PlatformDetector;
 import org.teavm.interop.Import;
@@ -26,6 +27,7 @@ import org.teavm.interop.Unmanaged;
 public final class TMath extends TObject {
     public static final double E = 2.71828182845904523536;
     public static final double PI = 3.14159265358979323846;
+    public static final double TAU = 2 * PI;
 
     private TMath() {
     }
@@ -141,6 +143,13 @@ public final class TMath extends TObject {
         return (a ^ b) < 0 && div * b != a ? div - 1 : div;
     }
 
+    public static int floorDivExact(int a, int b) {
+        if (a == Integer.MIN_VALUE && b == -1) {
+            throw new ArithmeticException();
+        }
+        return floorDiv(a, b);
+    }
+
     public static long floorDiv(long a, int b) {
         return floorDiv(a, (long) b);
     }
@@ -150,29 +159,219 @@ public final class TMath extends TObject {
         return (a ^ b) < 0 && div * b != a ? div - 1 : div;
     }
 
+    public static long floorDivExact(long a, long b) {
+        if (a == Long.MIN_VALUE && b == -1) {
+            throw new ArithmeticException();
+        }
+        return floorDiv(a, b);
+    }
+
+    public static int ceilDiv(int a, int b) {
+        int div = a / b;
+        return (a ^ b) >= 0 && div * b != a ? div + 1 : div;
+    }
+
+    public static int ceilDivExact(int a, int b) {
+        if (a == Integer.MIN_VALUE && b == -1) {
+            throw new ArithmeticException();
+        }
+        return ceilDiv(a, b);
+    }
+
+    public static long ceilDiv(long a, int b) {
+        return ceilDiv(a, (long) b);
+    }
+
+    public static long ceilDiv(long a, long b) {
+        long div = a / b;
+        return (a ^ b) >= 0 && div * b != a ? div + 1 : div;
+    }
+
+    public static long ceilDivExact(long a, long b) {
+        if (a == Long.MIN_VALUE && b == -1) {
+            throw new ArithmeticException();
+        }
+        return ceilDiv(a, b);
+    }
+
     public static int floorMod(int a, int b) {
-        return a - floorDiv(a, b) * b;
+        int mod = a % b;
+        return (a ^ b) < 0 && mod != 0 ? mod + b : mod;
     }
 
     public static int floorMod(long a, int b) {
-        return (int) (a - floorDiv(a, b) * b);
+        return (int) floorMod(a, (long) b);
     }
 
     public static long floorMod(long a, long b) {
-        return a - floorDiv(a, b) * b;
+        long mod = a % b;
+        return (a ^ b) < 0 && mod != 0 ? mod + b : mod;
+    }
+
+    public static int ceilMod(int a, int b) {
+        int mod = a % b;
+        return (a ^ b) >= 0 && mod != 0 ? mod - b : mod;
+    }
+
+    public static int ceilMod(long a, int b) {
+        return (int) ceilMod(a, (long) b);
+    }
+
+    public static long ceilMod(long a, long b) {
+        long mod = a % b;
+        return (a ^ b) >= 0 && mod != 0 ? mod - b : mod;
+    }
+
+    public static int incrementExact(int a) {
+        if (a == Integer.MAX_VALUE) {
+            throw new ArithmeticException();
+        }
+        return a + 1;
+    }
+
+    public static long incrementExact(long a) {
+        if (a == Long.MAX_VALUE) {
+            throw new ArithmeticException();
+        }
+        return a + 1L;
+    }
+
+    public static int decrementExact(int a) {
+        if (a == Integer.MIN_VALUE) {
+            throw new ArithmeticException();
+        }
+        return a - 1;
+    }
+
+    public static long decrementExact(long a) {
+        if (a == Long.MIN_VALUE) {
+            throw new ArithmeticException();
+        }
+        return a - 1L;
+    }
+
+    public static int negateExact(int a) {
+        if (a == Integer.MIN_VALUE) {
+            throw new ArithmeticException();
+        }
+        return -a;
+    }
+
+    public static long negateExact(long a) {
+        if (a == Long.MIN_VALUE) {
+            throw new ArithmeticException();
+        }
+        return -a;
+    }
+
+    public static int toIntExact(long value) {
+        if (value > Integer.MAX_VALUE || value < Integer.MIN_VALUE) {
+            throw new ArithmeticException();
+        }
+        return (int) value;
+    }
+
+    public static int addExact(int a, int b) {
+        int sum = a + b;
+        if ((a ^ sum) < 0 && (a ^ b) >= 0) { // a and b samesigned, but sum is not
+            throw new ArithmeticException();
+        }
+        return sum;
+    }
+
+    public static long addExact(long a, long b) {
+        long sum = a + b;
+        if ((a ^ sum) < 0 && (a ^ b) >= 0) {
+            throw new ArithmeticException();
+        }
+        return sum;
+    }
+
+    public static int subtractExact(int a, int b) {
+        int result = a - b;
+        if ((a ^ result) < 0 && (a ^ b) < 0) {
+            throw new ArithmeticException();
+        }
+        return result;
+    }
+
+    public static long subtractExact(long a, long b) {
+        long result = a - b;
+        if ((a ^ result) < 0 && (a ^ b) < 0) {
+            throw new ArithmeticException();
+        }
+        return result;
+    }
+
+    public static int multiplyExact(int a, int b) {
+        if (b == 1) {
+            return a;
+        } else if (a == 1) {
+            return b;
+        } else if (a == 0 || b == 0) {
+            return 0;
+        }
+        int total = a * b;
+        if ((a == Integer.MIN_VALUE && b == -1) || (b == Integer.MIN_VALUE && a == -1) || total / b != a) {
+            throw new ArithmeticException();
+        }
+        return total;
+    }
+
+    public static long multiplyExact(long a, int b) {
+        return multiplyExact(a, (long) b);
+    }
+
+    public static long multiplyExact(long a, long b) {
+        if (b == 1) {
+            return a;
+        } else if (a == 1) {
+            return b;
+        } else if (a == 0 || b == 0) {
+            return 0;
+        }
+        long total = a * b;
+        if ((a == Long.MIN_VALUE && b == -1) || (b == Long.MIN_VALUE && a == -1) || total / b != a) {
+            throw new ArithmeticException();
+        }
+        return total;
+    }
+
+    public static int divideExact(int a, int b) {
+        if (a == Integer.MIN_VALUE && b == -1) {
+            throw new ArithmeticException();
+        }
+        return a / b;
+    }
+
+    public static long divideExact(long a, long b) {
+        if (a == Long.MIN_VALUE && b == -1) {
+            throw new ArithmeticException();
+        }
+        return a / b;
     }
 
     @Unmanaged
     public static double random() {
-        return PlatformDetector.isC() ? randomC() : randomImpl();
+        if (PlatformDetector.isC()) {
+            return randomC();
+        } else if (PlatformDetector.isWebAssembly()) {
+            return WasmSupport.random();
+        } else if (PlatformDetector.isWebAssemblyGC()) {
+            return randomWasmGC();
+        } else {
+            return randomImpl();
+        }
     }
 
     @Import(name = "teavm_rand")
     private static native double randomC();
 
     @GeneratedBy(MathNativeGenerator.class)
-    @Import(module = "teavmMath", name = "random")
     private static native double randomImpl();
+
+    @Import(module = "teavmMath", name = "random")
+    private static native double randomWasmGC();
 
     public static int min(int a, int b) {
         return a < b ? a : b;
@@ -190,36 +389,144 @@ public final class TMath extends TObject {
         return a > b ? a : b;
     }
 
+    @GeneratedBy(MathNativeGenerator.class)
+    @NoSideEffects
+    @Unmanaged
+    private static native float minImpl(double a, double b);
+
+    @Unmanaged
     public static double min(double a, double b) {
-        return a < b ? a : b;
+        if (PlatformDetector.isJavaScript()) {
+            return minImpl(a, b);
+        } else if (PlatformDetector.isWebAssembly()) {
+            return WasmRuntime.min(a, b);
+        }
+        if (a != a) {
+            return a;
+        }
+        if (a == 0.0 && b == 0.0 && 1 / b == Double.NEGATIVE_INFINITY) {
+            return b;
+        }
+        return a <= b ? a : b;
     }
 
+    @GeneratedBy(MathNativeGenerator.class)
+    @NoSideEffects
+    @Unmanaged
+    private static native float maxImpl(double a, double b);
+
+    @Unmanaged
     public static double max(double a, double b) {
-        return a > b ? a : b;
+        if (PlatformDetector.isJavaScript()) {
+            return maxImpl(a, b);
+        } else if (PlatformDetector.isWebAssembly()) {
+            return WasmRuntime.max(a, b);
+        }
+        if (a != a) {
+            return a;
+        }
+        if (a == 0.0 && b == 0.0 && 1 / a == Double.NEGATIVE_INFINITY) {
+            return b;
+        }
+        return a >= b ? a : b;
     }
 
+    @GeneratedBy(MathNativeGenerator.class)
+    @NoSideEffects
+    @Unmanaged
+    private static native float minImpl(float a, float b);
+
+    @Unmanaged
     public static float min(float a, float b) {
-        return a < b ? a : b;
+        if (PlatformDetector.isJavaScript()) {
+            return minImpl(a, b);
+        } else if (PlatformDetector.isWebAssembly()) {
+            return WasmRuntime.min(a, b);
+        }
+        if (a != a) {
+            return a;
+        }
+        if (a == 0 && b == 0 && 1 / b == Float.NEGATIVE_INFINITY) {
+            return b;
+        }
+        return a <= b ? a : b;
     }
 
+    @GeneratedBy(MathNativeGenerator.class)
+    @NoSideEffects
+    @Unmanaged
+    private static native float maxImpl(float a, float b);
+
+    @Unmanaged
     public static float max(float a, float b) {
-        return a > b ? a : b;
+        if (PlatformDetector.isJavaScript()) {
+            return maxImpl(a, b);
+        } else if (PlatformDetector.isWebAssembly()) {
+            return WasmRuntime.max(a, b);
+        }
+        if (a != a) {
+            return a;
+        }
+        if (a == 0 && b == 0 && 1 / a == Float.NEGATIVE_INFINITY) {
+            return b;
+        }
+        return a >= b ? a : b;
     }
 
     public static int abs(int n) {
-        return n > 0 ? n : -n;
+        return n >= 0 ? n : -n;
+    }
+
+    public static int absExact(int n) {
+        if (n == Integer.MIN_VALUE) {
+            throw new ArithmeticException();
+        } else {
+            return abs(n);
+        }
     }
 
     public static long abs(long n) {
-        return n > 0 ? n : -n;
+        return n >= 0 ? n : -n;
     }
+
+    public static long absExact(long n) {
+        if (n == Long.MIN_VALUE) {
+            throw new ArithmeticException();
+        } else {
+            return abs(n);
+        }
+    }
+
+    @GeneratedBy(MathNativeGenerator.class)
+    @NoSideEffects
+    private static native float absImpl(float d);
+
+    @Import(name = "fabs")
+    private static native float absC(float d);
 
     public static float abs(float n) {
-        return n > 0 ? n : -n;
+        if (PlatformDetector.isJavaScript()) {
+            return absImpl(n);
+        } else if (PlatformDetector.isC()) {
+            return absC(n);
+        }
+        return n <= 0f ? 0f - n : n;
     }
 
+    @GeneratedBy(MathNativeGenerator.class)
+    @NoSideEffects
+    private static native double absImpl(double d);
+
+    @Import(name = "fabs")
+    private static native double absC(double d);
+
     public static double abs(double n) {
-        return n > 0 ? n : -n;
+        if (PlatformDetector.isJavaScript()) {
+            return absImpl(n);
+        } else if (PlatformDetector.isC()) {
+            return absC(n);
+        }
+        return n <= 0.0 ? 0.0 - n : n;
     }
 
     public static double ulp(double d) {
@@ -241,7 +548,7 @@ public final class TMath extends TObject {
             bits -= 52L << 52L;
         } else {
             int exponent = (int) (bits >> 52);
-            bits = 1 << Math.max(0, exponent - 1);
+            bits = 1L << Math.max(0, exponent - 1);
         }
         return TDouble.longBitsToDouble(bits);
     }
@@ -255,8 +562,8 @@ public final class TMath extends TObject {
 
         int bits = TFloat.floatToIntBits(d);
         bits &= 0x7F800000;
-        if (bits >= 24L << 23L) {
-            bits -= 23L << 23L;
+        if (bits >= 24 << 23) {
+            bits -= 23 << 23;
         } else {
             int exponent = bits >> 23;
             bits = 1 << Math.max(0, exponent - 1);
@@ -264,12 +571,32 @@ public final class TMath extends TObject {
         return TFloat.intBitsToFloat(bits);
     }
 
+    @GeneratedBy(MathNativeGenerator.class)
+    @NoSideEffects
+    private static native double sign(double d);
+
     public static double signum(double d) {
-        return d > 0 ? 1 : d < -0 ? -1 : d;
+        if (PlatformDetector.isJavaScript()) {
+            return sign(d);
+        }
+        if (Double.isNaN(d)) {
+            return d;
+        }
+        return d < 0 ? -1 : d > 0 ? 1 : d;
     }
 
+    @GeneratedBy(MathNativeGenerator.class)
+    @NoSideEffects
+    private static native float sign(float d);
+
     public static float signum(float d) {
-        return d > 0 ? 1 : d < -0 ? -1 : d;
+        if (PlatformDetector.isJavaScript()) {
+            return sign(d);
+        }
+        if (Double.isNaN(d)) {
+            return d;
+        }
+        return d < 0 ? -1 : d > 0 ? 1 : d;
     }
 
     public static double sinh(double x) {
@@ -300,29 +627,25 @@ public final class TMath extends TObject {
     }
 
     public static float copySign(float magnitude, float sign) {
-        if (sign == 0 || sign == -0) {
-            return sign;
-        }
-        return (sign > 0) == (magnitude > 0) ? magnitude : -magnitude;
+        return Float.intBitsToFloat((Float.floatToRawIntBits(sign) & Integer.MIN_VALUE)
+                | (Float.floatToRawIntBits(magnitude) & Integer.MAX_VALUE));
     }
 
     public static double copySign(double magnitude, double sign) {
-        if (sign == 0 || sign == -0) {
-            return sign;
-        }
-        return (sign > 0) == (magnitude > 0) ? magnitude : -magnitude;
+        return Double.longBitsToDouble((Double.doubleToRawLongBits(sign) & Long.MIN_VALUE)
+                | (Double.doubleToRawLongBits(magnitude) & Long.MAX_VALUE));
     }
 
     public static int getExponent(double d) {
-        long bits = TDouble.doubleToLongBits(d);
+        long bits = TDouble.doubleToRawLongBits(d);
         int exponent = (int) ((bits >> 52) & 0x7FF);
         return exponent - 1023;
     }
 
     public static int getExponent(float f) {
-        int bits = TFloat.floatToIntBits(f);
-        int exponent = (bits >> 23) & 0xF;
-        return exponent + 128;
+        int bits = TFloat.floatToRawIntBits(f);
+        int exponent = (bits >> 23) & 0xFF;
+        return exponent - 127;
     }
 
     public static double nextAfter(double start, double direction) {
@@ -340,15 +663,14 @@ public final class TMath extends TObject {
     }
 
     public static double nextUp(double d) {
-        if (TDouble.isNaN(d)) {
+        if (TDouble.isNaN(d) || d == TDouble.POSITIVE_INFINITY) {
             return d;
         }
-        if (d == TDouble.POSITIVE_INFINITY) {
-            return d;
+        if (d == 0.0d) {
+            return Double.MIN_VALUE;
         }
         long bits = TDouble.doubleToLongBits(d);
-        boolean negative = (bits & (1L << 63)) != 0;
-        if (negative) {
+        if (d < 0) {
             bits--;
         } else {
             bits++;
@@ -357,15 +679,14 @@ public final class TMath extends TObject {
     }
 
     public static float nextUp(float d) {
-        if (TFloat.isNaN(d)) {
+        if (TFloat.isNaN(d) || d == TFloat.POSITIVE_INFINITY) {
             return d;
         }
-        if (d == TFloat.POSITIVE_INFINITY) {
-            return d;
+        if (d == 0) {
+            return Float.MIN_VALUE;
         }
         int bits = TFloat.floatToIntBits(d);
-        boolean negative = (bits & (1L << 31)) != 0;
-        if (negative) {
+        if (d < 0) {
             bits--;
         } else {
             bits++;
@@ -374,15 +695,14 @@ public final class TMath extends TObject {
     }
 
     public static double nextDown(double d) {
-        if (TDouble.isNaN(d)) {
+        if (TDouble.isNaN(d) || d == TDouble.NEGATIVE_INFINITY) {
             return d;
         }
-        if (d == TDouble.NEGATIVE_INFINITY) {
-            return d;
+        if (d == 0.0d) {
+            return -Double.MIN_VALUE;
         }
         long bits = TDouble.doubleToLongBits(d);
-        boolean negative = (bits & (1L << 63)) != 0;
-        if (negative) {
+        if (d < 0) {
             bits++;
         } else {
             bits--;
@@ -391,19 +711,46 @@ public final class TMath extends TObject {
     }
 
     public static float nextDown(float d) {
-        if (TFloat.isNaN(d)) {
+        if (TFloat.isNaN(d) || d == TFloat.NEGATIVE_INFINITY) {
             return d;
         }
-        if (d == TFloat.POSITIVE_INFINITY) {
-            return d;
+        if (d == 0) {
+            return -Float.MIN_VALUE;
         }
         int bits = TFloat.floatToIntBits(d);
-        boolean negative = (bits & (1L << 31)) != 0;
-        if (negative) {
+        if (d < 0) {
             bits++;
         } else {
             bits--;
         }
         return TFloat.intBitsToFloat(bits);
+    }
+
+    public static int clamp(long value, int min, int max) {
+        if (min > max) {
+            throw new IllegalArgumentException();
+        }
+        return (int) Math.min(max, Math.max(value, min));
+    }
+
+    public static long clamp(long value, long min, long max) {
+        if (min > max) {
+            throw new IllegalArgumentException();
+        }
+        return Math.min(max, Math.max(value, min));
+    }
+
+    public static double clamp(double value, double min, double max) {
+        if (!(min < max) && (Double.isNaN(min) || Double.isNaN(max) || Double.compare(min, max) > 0)) {
+            throw new IllegalArgumentException();
+        }
+        return Math.min(max, Math.max(value, min));
+    }
+
+    public static float clamp(float value, float min, float max) {
+        if (!(min < max) && (Float.isNaN(min) || Float.isNaN(max) || Float.compare(min, max) > 0)) {
+            throw new IllegalArgumentException();
+        }
+        return Math.min(max, Math.max(value, min));
     }
 }

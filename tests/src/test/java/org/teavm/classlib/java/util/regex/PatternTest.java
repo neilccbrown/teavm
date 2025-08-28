@@ -44,10 +44,8 @@ import java.util.regex.PatternSyntaxException;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.teavm.junit.TeaVMTestRunner;
-import org.teavm.junit.WholeClassCompilation;
 
 @RunWith(TeaVMTestRunner.class)
-@WholeClassCompilation
 public class PatternTest {
     String[] testPatterns = {
             "(a|b)*abb",
@@ -608,16 +606,16 @@ public class PatternTest {
 
     @Test
     public void testBug197() {
-        Object[] vals = { ":", new Integer(2),
-                new String[] { "boo", "and:foo" }, ":", new Integer(5),
-                new String[] { "boo", "and", "foo" }, ":", new Integer(-2),
-                new String[] { "boo", "and", "foo" }, ":", new Integer(3),
-                new String[] { "boo", "and", "foo" }, ":", new Integer(1),
-                new String[] { "boo:and:foo" }, "o", new Integer(5),
+        Object[] vals = { ":", 2,
+                new String[] { "boo", "and:foo" }, ":", 5,
+                new String[] { "boo", "and", "foo" }, ":", -2,
+                new String[] { "boo", "and", "foo" }, ":", 3,
+                new String[] { "boo", "and", "foo" }, ":", 1,
+                new String[] { "boo:and:foo" }, "o", 5,
                 new String[] { "b", "", ":and:f", "", "" }, "o",
-                new Integer(4), new String[] { "b", "", ":and:f", "o" }, "o",
-                new Integer(-2), new String[] { "b", "", ":and:f", "", "" },
-                "o", new Integer(0), new String[] { "b", "", ":and:f" } };
+                4, new String[] { "b", "", ":and:f", "o" }, "o",
+                -2, new String[] { "b", "", ":and:f", "", "" },
+                "o", 0, new String[] { "b", "", ":and:f" } };
 
         for (int i = 0; i < vals.length / 3;) {
             String[] res = Pattern.compile(vals[i++].toString()).split("boo:and:foo", (Integer) vals[i++]);

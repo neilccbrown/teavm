@@ -16,17 +16,25 @@
 package org.teavm.classlib.java.lang.reflect;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.teavm.classlib.support.Reflectable;
+import org.teavm.junit.EachTestCompiledSeparately;
+import org.teavm.junit.SkipPlatform;
 import org.teavm.junit.TeaVMTestRunner;
+import org.teavm.junit.TestPlatform;
 
 @RunWith(TeaVMTestRunner.class)
+@EachTestCompiledSeparately
+@SkipPlatform({TestPlatform.C, TestPlatform.WEBASSEMBLY, TestPlatform.WASI})
 public class MethodTest {
     @Test
     public void methodsEnumerated() {
@@ -60,6 +68,27 @@ public class MethodTest {
     }
 
     @Test
+    public void methodsInheritedFromInterfaceEnumerated() {
+        callMethods();
+
+        String text = collectMethods(InterfaceImplementor.class.getMethods());
+        assertEquals(""
+                + "public default void SuperInterface.g();"
+                + "public void InterfaceImplementor.f();"
+                + "public void InterfaceImplementor.h();",
+                text
+        );
+    }
+
+    @Test
+    public void methodsEnumeratedWhenClassImplementEmptyInterface() {
+        callMethods();
+
+        String text = collectMethods(EmptyInterfaceImplementor.class.getMethods());
+        assertEquals("public void EmptyInterfaceImplementor.f();", text);
+    }
+
+    @Test
     public void bridgeMethodNotFound() throws NoSuchMethodException {
         callMethods();
 
@@ -85,11 +114,49 @@ public class MethodTest {
     }
 
     @Test
+    public void virtualInvoke() throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
+        var obj = new SubclassVirtualMethod();
+        var method = SuperclassVirtualMethod.class.getDeclaredMethod("f");
+        var result = method.invoke(obj);
+        assertEquals("sub", result);
+
+        var privateMethod = SuperclassVirtualMethod.class.getDeclaredMethod("g");
+        privateMethod.setAccessible(true);
+        result = privateMethod.invoke(obj);
+        assertEquals("super", result);
+    }
+
+    @Test
     public void staticInitializerCalled() throws NoSuchMethodException, InvocationTargetException,
             IllegalAccessException {
         Method method = WithInitializer.class.getMethod("f");
         method.invoke(null);
         assertEquals("init;f();", WithInitializer.log);
+    }
+
+    @Test
+    public void enumMethodWithUnusedParameterType() {
+        var methods = ClassWithMethodReferringToUnusedInterface.class.getDeclaredMethods();
+        assertEquals(1, methods.length);
+        assertEquals("f", methods[0].getName());
+        assertEquals("java.util.function.Consumer", methods[0].getParameterTypes()[0].getName());
+        assertTrue(methods[0].getReturnType().getComponentType().isInterface());
+    }
+
+    @Test
+    public void avoidCallingVirtualMethod() throws InvocationTargetException, IllegalAccessException {
+        var methods = new ArrayList<Method>();
+        for (var cls : List.of(FirstClassWithVirtualMethod.class, SecondClassWithVirtualMethod.class)) {
+            methods.addAll(List.of(cls.getDeclaredMethods()));
+        }
+        var o = new SecondClassWithVirtualMethod();
+        var sb = new StringBuilder();
+        for (var method : methods) {
+            if (method.getDeclaringClass().isInstance(o)) {
+                sb.append(method.invoke(o, (short) 23));
+            }
+        }
+        assertEquals("g:23", sb.toString());
     }
 
     private void callMethods() {
@@ -100,6 +167,10 @@ public class MethodTest {
         new SubClass().g();
         new SuperClassWithBridge().f();
         new SubClassWithBridge().f();
+        new InterfaceImplementor().f();
+        new InterfaceImplementor().g();
+        new InterfaceImplementor().h();
+        new EmptyInterfaceImplementor().f();
     }
 
     private String collectMethods(Method[] methods) {
@@ -170,6 +241,79 @@ public class MethodTest {
 
         @Reflectable public static void f() {
             log += "f();";
+        }
+    }
+
+    static class SuperclassVirtualMethod {
+        @Reflectable
+        public String f() {
+            return "super";
+        }
+
+        @Reflectable
+        private String g() {
+            return "super";
+        }
+    }
+
+    static class SubclassVirtualMethod extends SuperclassVirtualMethod {
+        @Override
+        public String f() {
+            return "sub";
+        }
+
+        @Reflectable
+        private String g() {
+            return "sub";
+        }
+    }
+
+    interface SuperInterface {
+        @Reflectable
+        void f();
+
+        @Reflectable
+        default void g() {
+        }
+    }
+
+    static class InterfaceImplementor implements SuperInterface {
+        @Override
+        public void f() {
+        }
+
+        @Reflectable
+        public void h() {
+        }
+    }
+
+    interface EmptySuperInterface {
+    }
+
+    static class EmptyInterfaceImplementor implements EmptySuperInterface {
+        @Reflectable
+        public void f() {
+        }
+    }
+
+    static class ClassWithMethodReferringToUnusedInterface {
+        @Reflectable
+        public Function<Object, Object>[] f(Consumer<String> s) {
+            return null;
+        }
+    }
+
+    static class FirstClassWithVirtualMethod {
+        @Reflectable
+        public String f(int x) {
+            return "f:" + x;
+        }
+    }
+
+    static class SecondClassWithVirtualMethod {
+        @Reflectable
+        public String g(short x) {
+            return "g:" + x;
         }
     }
 }

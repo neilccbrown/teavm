@@ -111,7 +111,7 @@ public class ValueEmitter {
         String className = ((ValueType.Object) type).getClassName();
         PutFieldInstruction insn = new PutFieldInstruction();
         insn.setField(new FieldReference(className, name));
-        insn.setFieldType(type);
+        insn.setFieldType(value.type);
         insn.setInstance(variable);
         insn.setValue(value.getVariable());
         pe.addInstruction(insn);
@@ -937,7 +937,7 @@ public class ValueEmitter {
         insn.setArray(variable);
         insn.setReceiver(result);
         pe.addInstruction(insn);
-        return pe.var(result, type);
+        return pe.var(result, ValueType.object("java.lang.Object"));
     }
 
     private ArrayElementType getArrayElementType(ValueType type) {

@@ -24,7 +24,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-import org.teavm.backend.lowlevel.generate.NameProvider;
+import org.teavm.backend.lowlevel.generate.ClassGeneratorUtil;
+import org.teavm.backend.wasm.WasmFunctionRepository;
 import org.teavm.backend.wasm.binary.BinaryWriter;
 import org.teavm.backend.wasm.binary.DataArray;
 import org.teavm.backend.wasm.binary.DataPrimitives;
@@ -33,6 +34,9 @@ import org.teavm.backend.wasm.binary.DataType;
 import org.teavm.backend.wasm.binary.DataValue;
 import org.teavm.backend.wasm.debug.DebugClassLayout;
 import org.teavm.backend.wasm.debug.info.FieldType;
+import org.teavm.backend.wasm.model.WasmFunction;
+import org.teavm.backend.wasm.model.WasmModule;
+import org.teavm.backend.wasm.render.WasmBinaryStatsCollector;
 import org.teavm.common.IntegerArray;
 import org.teavm.interop.Address;
 import org.teavm.interop.Function;
@@ -52,6 +56,7 @@ import org.teavm.model.classes.VirtualTable;
 import org.teavm.model.classes.VirtualTableEntry;
 import org.teavm.model.classes.VirtualTableProvider;
 import org.teavm.model.lowlevel.Characteristics;
+import org.teavm.model.util.ReflectionUtil;
 import org.teavm.runtime.RuntimeClass;
 import org.teavm.runtime.RuntimeObject;
 
@@ -59,11 +64,12 @@ public class WasmClassGenerator {
     private ClassReaderSource processedClassSource;
     private ClassReaderSource classSource;
     private Characteristics characteristics;
-    public final NameProvider names;
+    public final WasmFunctionRepository functions;
+    public final WasmModule module;
     private Map<ValueType, ClassBinaryData> binaryDataMap = new LinkedHashMap<>();
     private BinaryWriter binaryWriter;
-    private Map<MethodReference, Integer> functions = new HashMap<>();
-    private List<String> functionTable = new ArrayList<>();
+    private Map<MethodReference, Integer> tableFunctions = new HashMap<>();
+    private ObjectIntMap<WasmFunction> functionIdMap = new ObjectIntHashMap<>();
     private VirtualTableProvider vtableProvider;
     private TagRegistry tagRegistry;
     private WasmStringPool stringPool;
@@ -100,6 +106,7 @@ public class WasmClassGenerator {
     private ClassMetadataRequirements metadataRequirements;
     private ClassInitializerInfo classInitializerInfo;
     private DwarfClassGenerator dwarfClassGenerator;
+    private WasmBinaryStatsCollector statsCollector;
 
     private static final int CLASS_SIZE = 1;
     private static final int CLASS_FLAGS = 2;
@@ -119,20 +126,22 @@ public class WasmClassGenerator {
 
     public WasmClassGenerator(ClassReaderSource processedClassSource, ClassReaderSource classSource,
             VirtualTableProvider vtableProvider, TagRegistry tagRegistry, BinaryWriter binaryWriter,
-            NameProvider names, ClassMetadataRequirements metadataRequirements,
+            WasmFunctionRepository functions, WasmModule module, ClassMetadataRequirements metadataRequirements,
             ClassInitializerInfo classInitializerInfo, Characteristics characteristics,
-            DwarfClassGenerator dwarfClassGenerator) {
+            DwarfClassGenerator dwarfClassGenerator, WasmBinaryStatsCollector statsCollector) {
         this.processedClassSource = processedClassSource;
         this.classSource = classSource;
         this.vtableProvider = vtableProvider;
         this.tagRegistry = tagRegistry;
         this.binaryWriter = binaryWriter;
-        this.stringPool = new WasmStringPool(this, binaryWriter);
-        this.names = names;
+        this.functions = functions;
+        this.module = module;
+        this.stringPool = new WasmStringPool(this, binaryWriter, statsCollector);
         this.metadataRequirements = metadataRequirements;
         this.classInitializerInfo = classInitializerInfo;
         this.characteristics = characteristics;
         this.dwarfClassGenerator = dwarfClassGenerator;
+        this.statsCollector = statsCollector;
     }
 
     public WasmStringPool getStringPool() {
@@ -193,6 +202,8 @@ public class WasmClassGenerator {
                 calculateLayout(cls, binaryData, dwarfClass);
                 if (binaryData.start >= 0) {
                     binaryData.start = binaryWriter.append(createStructure(binaryData));
+                    var size = binaryWriter.getAddress() - binaryData.start;
+                    statsCollector.addClassMetadataSize(className, size);
                 }
                 if (dwarfClass != null) {
                     dwarfClass.setSize(binaryData.size);
@@ -217,9 +228,8 @@ public class WasmClassGenerator {
             binaryData.data = wrapper.getValue(0);
             binaryData.data.setInt(CLASS_SIZE, 4);
             binaryData.data.setAddress(CLASS_ITEM_TYPE, itemBinaryData.start);
-            binaryData.data.setInt(CLASS_IS_INSTANCE, functionTable.size());
+            binaryData.data.setInt(CLASS_IS_INSTANCE, getFunctionPointer(functions.forSupertype(type)));
             binaryData.data.setInt(CLASS_CANARY, RuntimeClass.computeCanary(4, 0));
-            functionTable.add(names.forSupertypeFunction(type));
             binaryData.data.setAddress(CLASS_NAME, stringPool.getStringPointer(type.toString().replace('/', '.')));
             binaryData.data.setAddress(CLASS_SIMPLE_NAME, 0);
             binaryData.data.setInt(CLASS_INIT, -1);
@@ -233,43 +243,16 @@ public class WasmClassGenerator {
     private DataValue createPrimitiveClassData(DataValue value, int size, ValueType type) {
         value.setInt(CLASS_SIZE, size);
         value.setInt(CLASS_FLAGS, RuntimeClass.PRIMITIVE);
-        value.setInt(CLASS_IS_INSTANCE, functionTable.size());
+        value.setInt(CLASS_IS_INSTANCE, getFunctionPointer(functions.forSupertype(type)));
         value.setAddress(CLASS_SIMPLE_NAME, 0);
         value.setInt(CLASS_INIT, -1);
-        functionTable.add(names.forSupertypeFunction(type));
+        value.setInt(CLASS_TAG, Integer.MAX_VALUE);
 
         String name;
         if (type == ValueType.VOID) {
             name = "void";
         } else {
-            switch (((ValueType.Primitive) type).getKind()) {
-                case BOOLEAN:
-                    name = "boolean";
-                    break;
-                case BYTE:
-                    name = "byte";
-                    break;
-                case SHORT:
-                    name = "short";
-                    break;
-                case CHARACTER:
-                    name = "char";
-                    break;
-                case INTEGER:
-                    name = "int";
-                    break;
-                case LONG:
-                    name = "long";
-                    break;
-                case FLOAT:
-                    name = "float";
-                    break;
-                case DOUBLE:
-                    name = "double";
-                    break;
-                default:
-                    name = "";
-            }
+            name = ReflectionUtil.typeName(((ValueType.Primitive) type).getKind());
         }
 
         value.setAddress(CLASS_NAME, stringPool.getStringPointer(name));
@@ -277,13 +260,19 @@ public class WasmClassGenerator {
         return value;
     }
 
-    public List<String> getFunctionTable() {
-        return functionTable;
+    public int getFunctionPointer(WasmFunction function) {
+        var result = functionIdMap.getOrDefault(function, -1);
+        if (result < 0) {
+            result = module.getFunctionTable().size();
+            module.getFunctionTable().add(function);
+            functionIdMap.put(function, result);
+        }
+        return result;
     }
 
     private DataValue createStructure(ClassBinaryData binaryData) {
         String parent = binaryData.cls.getParent();
-        int parentPtr = !binaryData.isInferface && parent != null
+        int parentPtr = !binaryData.isInterface && parent != null
                 ? getClassPointer(ValueType.object(binaryData.cls.getParent()))
                 : 0;
 
@@ -311,8 +300,7 @@ public class WasmClassGenerator {
         header.setInt(CLASS_CANARY, RuntimeClass.computeCanary(occupiedSize, tag));
         int nameAddress = requirements.name() ? stringPool.getStringPointer(name) : 0;
         header.setAddress(CLASS_NAME, nameAddress);
-        header.setInt(CLASS_IS_INSTANCE, functionTable.size());
-        functionTable.add(names.forSupertypeFunction(ValueType.object(name)));
+        header.setInt(CLASS_IS_INSTANCE, getFunctionPointer(functions.forSupertype(ValueType.object(name))));
         header.setAddress(CLASS_PARENT, parentPtr);
 
         ClassReader cls = processedClassSource.get(name);
@@ -364,11 +352,15 @@ public class WasmClassGenerator {
             }
         }
 
+        flags = ClassGeneratorUtil.contributeToFlags(cls, flags);
+        if (binaryData.bufferObjectFieldOffset >= 0) {
+            header.setAddress(CLASS_ENUM_VALUES, binaryData.bufferObjectFieldOffset);
+        }
+
         if (cls != null && binaryData.start >= 0
                 && cls.getMethod(new MethodDescriptor("<clinit>", ValueType.VOID)) != null
                 && classInitializerInfo.isDynamicInitializer(name)) {
-            header.setInt(CLASS_INIT, functionTable.size());
-            functionTable.add(names.forClassInitializer(name));
+            header.setInt(CLASS_INIT, getFunctionPointer(functions.forClassInitializer(name)));
         } else {
             header.setInt(CLASS_INIT, -1);
         }
@@ -445,11 +437,8 @@ public class WasmClassGenerator {
                 if (method != null) {
                     VirtualTableEntry entry = vtable.getEntry(method);
                     if (entry != null) {
-                        methodIndex = functions.computeIfAbsent(entry.getImplementor(), implementor -> {
-                            int result = functionTable.size();
-                            functionTable.add(names.forMethod(implementor));
-                            return result;
-                        });
+                        methodIndex = tableFunctions.computeIfAbsent(entry.getImplementor(),
+                                implementor -> getFunctionPointer(functions.forInstanceMethod(implementor)));
                     }
                 }
 
@@ -529,7 +518,7 @@ public class WasmClassGenerator {
             data.alignment = 4;
         }
 
-        data.isInferface = cls.hasModifier(ElementModifier.INTERFACE);
+        data.isInterface = cls.hasModifier(ElementModifier.INTERFACE);
         data.cls = cls;
 
         for (FieldReader field : cls.getFields()) {
@@ -540,11 +529,23 @@ public class WasmClassGenerator {
                 if (field.getInitialValue() != null) {
                     setInitialValue(field.getType(), value, field.getInitialValue());
                 }
-                data.fieldLayout.put(field.getName(), binaryWriter.append(value));
+                var address = binaryWriter.append(value);
+                data.fieldLayout.put(field.getName(), address);
+                if (dwarfClass != null) {
+                    dwarfClass.registerStaticField(field.getName(), field.getType(), address);
+                    dwarfClassGenerator.getTypePtr(field.getType());
+                }
             } else {
                 int offset = align(data.size, desiredAlignment);
                 data.fieldLayout.put(field.getName(), offset);
                 data.size = offset + desiredAlignment;
+                if (dwarfClass != null) {
+                    dwarfClass.registerField(field.getName(), field.getType(), offset);
+                    dwarfClassGenerator.getTypePtr(field.getType());
+                }
+                if (ClassGeneratorUtil.isBufferObjectField(field)) {
+                    data.bufferObjectFieldOffset = offset;
+                }
             }
             if (data.alignment == 0) {
                 data.alignment = desiredAlignment;
@@ -715,7 +716,6 @@ public class WasmClassGenerator {
             } else if (data.type instanceof ValueType.Object) {
                 var className = ((ValueType.Object) data.type).getClassName();
                 if (className.equals("java.lang.Class")) {
-                    int headerSize = 8;
                     debug.startClass(className, indexes.get(ValueType.object("java.lang.Object")), data.start, 60);
                     debug.instanceField("size", 8, FieldType.INT);
                     debug.instanceField("flags", 12, FieldType.INT);
@@ -724,10 +724,10 @@ public class WasmClassGenerator {
                     debug.instanceField("parent", 56, FieldType.OBJECT);
                     debug.endClass();
                 } else if (isManagedClass(className)) {
-                    var parent = data.cls.getParent() != null
+                    var parent = data.cls != null && data.cls.getParent() != null
                             ? indexes.get(ValueType.object(data.cls.getParent()))
                             : -1;
-                    if (data.isInferface) {
+                    if (data.isInterface) {
                         debug.writeInterface(className, data.start);
                     } else {
                         debug.startClass(className, parent, data.start, data.size);
@@ -812,10 +812,11 @@ public class WasmClassGenerator {
         int size;
         int alignment;
         int start;
-        boolean isInferface;
+        boolean isInterface;
         ObjectIntMap<String> fieldLayout = new ObjectIntHashMap<>();
         DataValue data;
         ClassReader cls;
         boolean function;
+        int bufferObjectFieldOffset = -1;
     }
 }

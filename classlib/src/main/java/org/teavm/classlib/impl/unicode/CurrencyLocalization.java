@@ -20,9 +20,5 @@ import org.teavm.platform.metadata.Resource;
 public interface CurrencyLocalization extends Resource {
     String getName();
 
-    void setName(String name);
-
     String getSymbol();
-
-    void setSymbol(String symbol);
 }

@@ -24,6 +24,7 @@ pluginManagement {
 }
 plugins {
     id("dependency-relocation")
+    id("org.gradle.toolchains.foojay-resolver-convention") version "0.4.0"
 }
 
 rootProject.name = "teavm"
@@ -35,7 +36,9 @@ include("jso:core", "jso:apis", "jso:impl")
 include("platform")
 include("classlib")
 include("tools:core")
+include("tools:browser-runner")
 include("tools:deobfuscator-js")
+include("tools:deobfuscator-wasm-gc")
 include("tools:junit")
 include("tools:devserver")
 include("tools:c-incremental")
@@ -46,7 +49,9 @@ include("tools:ide-deps")
 include("tools:idea")
 include("tools:maven:plugin")
 include("tools:maven:webapp")
+include("tools:maven:webapp-wasm-gc")
 include("tools:classlib-comparison-gen")
+include("tools:wasm-disassembly")
 include("tests")
 include("extras-slf4j")
 
@@ -67,6 +72,11 @@ gradle.allprojects {
     }
     tasks.withType<Javadoc>().configureEach {
         options.encoding = "UTF-8"
+    }
+    tasks.withType<JavaExec>().configureEach {
+        if (name.endsWith("main()")) {
+            notCompatibleWithConfigurationCache("JavaExec created by IntelliJ")
+        }
     }
 }
 
@@ -90,34 +100,36 @@ gradle.afterProject {
 }
 
 fun MavenPom.setupPom(project: Project) {
-    name.set(project.description)
-    description.set(project.description)
+    name = project.description
+    description = project.description
     licenses {
         license {
-            name.set("The Apache Software License, Version 2.0")
-            url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
-            distribution.set("repo")
-            comments.set("A business-friendly OSS license")
+            name = "The Apache Software License, Version 2.0"
+            url = "http://www.apache.org/licenses/LICENSE-2.0.txt"
+            distribution = "repo"
+            comments = "A business-friendly OSS license"
         }
     }
     developers {
         developer {
-            id.set("konsoletyper")
-            name.set("Alexey Andreev")
-            email.set("konsoletyper@gmail.com")
-            timezone.set("Europe/Berlin")
+            id = "konsoletyper"
+            name = "Alexey Andreev"
+            email = "konsoletyper@gmail.com"
+            timezone = "Europe/Berlin"
         }
     }
     scm {
-        url.set("https://github.com/konsoletyper/teavm")
-        connection.set("scm:git:git@github.com:konsoletyper/teavm.git")
+        url = "https://github.com/konsoletyper/teavm"
+        connection = "scm:git:git@github.com:konsoletyper/teavm.git"
     }
-    url.set("https://teavm.org")
+    url = "https://teavm.org"
 }
 
 extensions.configure<DependencyRelocationExtension> {
-    library("libs", "commons-io") {
-        relocate("org.apache.commons", "org.teavm.apachecommons")
+    for (commonsLib in listOf("commons-io", "commons-cli")) {
+        library("libs", commonsLib) {
+            relocate("org.apache.commons", "org.teavm.apachecommons")
+        }
     }
     for (asmLib in listOf("asm", "asm-tree", "asm-analysis", "asm-commons", "asm-util")) {
         library("libs", asmLib) {

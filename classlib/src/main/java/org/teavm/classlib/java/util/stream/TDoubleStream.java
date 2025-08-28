@@ -29,6 +29,7 @@ import java.util.function.DoubleToLongFunction;
 import java.util.function.DoubleUnaryOperator;
 import java.util.function.ObjDoubleConsumer;
 import java.util.function.Supplier;
+import org.teavm.classlib.java.util.TDoubleSummaryStatistics;
 import org.teavm.classlib.java.util.stream.doubleimpl.TArrayDoubleStreamImpl;
 import org.teavm.classlib.java.util.stream.doubleimpl.TDoubleStreamBuilder;
 import org.teavm.classlib.java.util.stream.doubleimpl.TEmptyDoubleStreamImpl;
@@ -40,7 +41,8 @@ import org.teavm.classlib.java.util.stream.doubleimpl.TSingleDoubleStreamImpl;
 import org.teavm.classlib.java.util.stream.doubleimpl.TSpecializedConcatDoubleStream;
 
 public interface TDoubleStream extends TBaseStream<Double, TDoubleStream> {
-    interface Builder {
+    interface Builder extends DoubleConsumer {
+        @Override
         void accept(double t);
 
         default Builder add(double t) {
@@ -63,6 +65,14 @@ public interface TDoubleStream extends TBaseStream<Double, TDoubleStream> {
 
     TDoubleStream flatMap(DoubleFunction<? extends TDoubleStream> mapper);
 
+    default TDoubleStream mapMulti(DoubleMapMultiConsumer mapper) {
+        return flatMap(e -> {
+            Builder builder = builder();
+            mapper.accept(e, builder);
+            return builder.build();
+        });
+    }
+
     TDoubleStream distinct();
 
     TDoubleStream sorted();
@@ -70,6 +80,10 @@ public interface TDoubleStream extends TBaseStream<Double, TDoubleStream> {
     TDoubleStream peek(DoubleConsumer action);
 
     TDoubleStream limit(long maxSize);
+
+    TDoubleStream takeWhile(DoublePredicate predicate);
+
+    TDoubleStream dropWhile(DoublePredicate predicate);
 
     TDoubleStream skip(long n);
 
@@ -94,6 +108,8 @@ public interface TDoubleStream extends TBaseStream<Double, TDoubleStream> {
     long count();
 
     OptionalDouble average();
+
+    TDoubleSummaryStatistics summaryStatistics();
 
     boolean anyMatch(DoublePredicate predicate);
 
@@ -133,6 +149,10 @@ public interface TDoubleStream extends TBaseStream<Double, TDoubleStream> {
         return new TIterateDoubleStream(seed, f);
     }
 
+    static TDoubleStream iterate(double seed, DoublePredicate pr, DoubleUnaryOperator f) {
+        return new TIterateDoubleStream(seed, pr, f);
+    }
+
     static TDoubleStream generate(DoubleSupplier s) {
         return new TGenerateDoubleStream(s);
     }
@@ -143,5 +163,10 @@ public interface TDoubleStream extends TBaseStream<Double, TDoubleStream> {
         } else {
             return new TGenericConcatDoubleStream(a, b);
         }
+    }
+
+    @FunctionalInterface
+    interface DoubleMapMultiConsumer {
+        void accept(double value, DoubleConsumer dc);
     }
 }

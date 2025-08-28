@@ -33,6 +33,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Spliterator;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.DoubleStream;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
@@ -394,6 +395,33 @@ public class StreamTest {
         var sb = new StringBuilder();
         Stream.of(1, 2, 3, 4, 0, 5, 6).takeWhile(n -> n < 4).forEach(sb::append);
         assertEquals("123", sb.toString());
+
+        class ForeverIncreasingSupplier implements Supplier<Integer> {
+            int value = 1;
+
+            @Override
+            public Integer get() {
+                return value++;
+            }
+        }
+
+        testIntegerStream(
+                () -> Stream.concat(
+                        Stream.generate(new ForeverIncreasingSupplier()).takeWhile(n -> n < 4),
+                        Stream.generate(new ForeverIncreasingSupplier()).takeWhile(n -> n < 3)
+                ),
+                1, 2, 3, 1, 2
+        );
+    }
+
+    @Test
+    public void dropWhileWorks() {
+        var sb = new StringBuilder();
+        Stream.of(1, 2, 3, 4, 0, 5, 6).dropWhile(n -> n < 4).forEach(sb::append);
+        assertEquals("4056", sb.toString());
+        sb = new StringBuilder();
+        Stream.of(1, 2, 3, 4, 0, 5, 6).dropWhile(n -> n < 7).forEach(sb::append);
+        assertEquals("", sb.toString());
     }
 
     @Test
@@ -401,6 +429,16 @@ public class StreamTest {
         var sb = new StringBuilder();
         Stream.of(1, 2, 3, 4, 0, 5, 6).takeWhile(i -> i < 4).filter(i -> i % 2 != 0).forEach(sb::append);
         assertEquals("13", sb.toString());
+    }
+
+    @Test
+    public void dropWhileWithOtherStreamOps() {
+        var sb = new StringBuilder();
+        Stream.of(1, 2, 3, 4, 0, 5, 6).dropWhile(i -> i < 4).filter(i -> i % 2 == 0).forEach(sb::append);
+        assertEquals("406", sb.toString());
+        sb = new StringBuilder();
+        Stream.of(1, 2, 3, 4, 0, 5, 6).dropWhile(i -> i < 7).filter(i -> i % 2 == 0).forEach(sb::append);
+        assertEquals("", sb.toString());
     }
 
     @Test
@@ -439,5 +477,47 @@ public class StreamTest {
         } catch (UnsupportedOperationException e) {
             // ok
         }
+    }
+
+    @Test
+    public void mapMultiWorks() {
+        String[] mapped = Stream.of(" a ", "", "   bb       ").<String>mapMulti((s, cons) -> {
+            String trim = s.trim();
+            if (!trim.isEmpty()) {
+                cons.accept(trim);
+            }
+        }).toArray(String[]::new);
+        assertArrayEquals(new String[] {"a", "bb"}, mapped);
+        int[] mappedInt = Stream.of("a", "", "bb").mapMultiToInt((s, cons) -> {
+            if (s.length() % 2 == 0) {
+                cons.accept(s.length());
+            }
+        }).toArray();
+        assertArrayEquals(new int[] {0, 2}, mappedInt);
+    }
+
+    @Test
+    public void iterateWorks() {
+        for (int c = 0; c < 10; c++) {
+            int cnt = c;
+            int sum = Stream.iterate(1, i -> i < 2 * cnt, i -> i + 2).mapToInt(Integer::intValue).sum();
+            assertEquals(cnt * cnt, sum);
+        }
+        List<String> repetitions = Stream.iterate("", s -> s.length() < 5, s -> s + "a").toList();
+        assertEquals(List.of("", "a", "aa", "aaa", "aaaa"), repetitions);
+    }
+
+    @Test
+    public void generateLimit() {
+        var supplier = new Supplier<String>() {
+            int index;
+
+            @Override
+            public String get() {
+                return String.valueOf((char) ('a' + index++));
+            }
+        };
+        assertEquals(List.of("a", "b", "c"), Stream.generate(supplier).limit(3).toList());
+        assertEquals(3, supplier.index);
     }
 }

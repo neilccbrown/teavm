@@ -32,6 +32,7 @@ dependencies {
     implementation(libs.maven.plugin.tools.annotations)
     implementation(libs.maven.embedder)
     implementation(libs.maven.compat)
+    implementation(libs.jreleaser)
 }
 
 gradlePlugin {
@@ -61,7 +62,7 @@ gradlePlugin {
 
 checkstyle {
     toolVersion = libs.versions.checkstyle.get()
-    configDirectory.set(project.layout.projectDirectory.dir("../config/checkstyle"))
+    configDirectory = project.layout.projectDirectory.dir("../config/checkstyle")
 }
 
 java {

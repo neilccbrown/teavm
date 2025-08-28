@@ -28,8 +28,15 @@ configurations {
 
 dependencies {
     "teavm"(project(":jso:impl"))
+    compileOnly(project(":interop:core"))
 }
 
 teavmPublish {
     artifactId = "teavm-jso"
+}
+
+tasks.withType<Jar> {
+    manifest {
+        attributes["Automatic-Module-Name"] = "org.teavm.jso"
+    }
 }

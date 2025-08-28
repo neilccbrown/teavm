@@ -39,6 +39,7 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Type;
 import org.teavm.model.ReferenceCache;
 import org.teavm.parsing.ClasspathClassHolderSource;
+import org.teavm.parsing.ClasspathResourceProvider;
 
 public class JCLComparisonBuilder {
     private static final String CLASS_SUFFIX = ".class";
@@ -119,25 +120,28 @@ public class JCLComparisonBuilder {
 
     private List<JCLPackage> buildModel() throws IOException {
         var packageMap = new HashMap<String, JCLPackage>();
-        var classSource = new ClasspathClassHolderSource(classLoader, new ReferenceCache());
+        var resourceProvider = new ClasspathResourceProvider(classLoader);
+        var classSource = new ClasspathClassHolderSource(resourceProvider, new ReferenceCache());
         visitor = new JCLComparisonVisitor(classSource, packageMap);
-        try {
-            var fs = FileSystems.getFileSystem(URI.create("jrt:/"));
-            var p = fs.getPath("modules/java.base/java");
-            Files.walkFileTree(p, new SimpleFileVisitor<>() {
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                    if (validateName(file.getFileName().toString())) {
-                        try (InputStream input = Files.newInputStream(file)) {
-                            compareClass(input);
+        for (var moduleName : List.of("java.base", "java.logging")) {
+            try {
+                var fs = FileSystems.getFileSystem(URI.create("jrt:/"));
+                var p = fs.getPath("modules/" + moduleName + "/java");
+                Files.walkFileTree(p, new SimpleFileVisitor<>() {
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                        if (validateName(file.getFileName().toString())) {
+                            try (InputStream input = Files.newInputStream(file)) {
+                                compareClass(input);
+                            }
                         }
+                        return FileVisitResult.CONTINUE;
                     }
-                    return FileVisitResult.CONTINUE;
-                }
-            });
-            System.out.println();
-        } catch (FileSystemNotFoundException ex) {
-            System.out.println("Could not read my modules (perhaps not Java 9?).");
+                });
+                System.out.println();
+            } catch (FileSystemNotFoundException ex) {
+                System.out.println("Could not read my modules (perhaps not Java 9?).");
+            }
         }
 
         for (JCLPackage pkg : packageMap.values()) {

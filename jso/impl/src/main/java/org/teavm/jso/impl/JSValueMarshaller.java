@@ -15,13 +15,20 @@
  */
 package org.teavm.jso.impl;
 
+import static org.teavm.jso.impl.JSMethods.JS_OBJECT;
+import static org.teavm.jso.impl.JSMethods.JS_OBJECT_CLASS;
+import static org.teavm.jso.impl.JSMethods.JS_WRAPPER_CLASS;
+import static org.teavm.jso.impl.JSMethods.OBJECT;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Function;
 import org.teavm.diagnostics.Diagnostics;
+import org.teavm.jso.JSBufferType;
+import org.teavm.jso.JSClass;
 import org.teavm.jso.JSFunctor;
-import org.teavm.jso.JSObject;
+import org.teavm.jso.JSModule;
+import org.teavm.model.AnnotationContainerReader;
 import org.teavm.model.CallLocation;
+import org.teavm.model.ClassHierarchy;
 import org.teavm.model.ClassReader;
 import org.teavm.model.ClassReaderSource;
 import org.teavm.model.ElementModifier;
@@ -32,38 +39,47 @@ import org.teavm.model.ReferenceCache;
 import org.teavm.model.TextLocation;
 import org.teavm.model.ValueType;
 import org.teavm.model.Variable;
+import org.teavm.model.instructions.CastInstruction;
 import org.teavm.model.instructions.ClassConstantInstruction;
 import org.teavm.model.instructions.InvocationType;
 import org.teavm.model.instructions.InvokeInstruction;
+import org.teavm.model.instructions.NullConstantInstruction;
 import org.teavm.model.instructions.StringConstantInstruction;
 
 class JSValueMarshaller {
+    private static final MethodReference JS_TO_JAVA = new MethodReference(JS_WRAPPER_CLASS, "jsToJava",
+            JS_OBJECT, OBJECT);
+    private static final MethodReference LIGHTWEIGHT_JS_TO_JAVA = new MethodReference(JS_WRAPPER_CLASS,
+            "dependencyJsToJava", JS_OBJECT, OBJECT);
     private static final ValueType stringType = ValueType.parse(String.class);
     private ReferenceCache referenceCache = new ReferenceCache();
     private Diagnostics diagnostics;
     private JSTypeHelper typeHelper;
     private ClassReaderSource classSource;
+    private ClassHierarchy hierarchy;
     private Program program;
     private List<Instruction> replacement;
 
     JSValueMarshaller(Diagnostics diagnostics, JSTypeHelper typeHelper, ClassReaderSource classSource,
-            Program program, List<Instruction> replacement) {
+            ClassHierarchy hierarchy, Program program, List<Instruction> replacement) {
         this.diagnostics = diagnostics;
+        this.hierarchy = hierarchy;
         this.typeHelper = typeHelper;
         this.classSource = classSource;
         this.program = program;
         this.replacement = replacement;
     }
 
-    Variable wrapArgument(CallLocation location, Variable var, ValueType type, boolean byRef) {
+    Variable wrapArgument(CallLocation location, Variable var, ValueType type, JSType jsType, boolean byRef,
+            JSBufferType bufferType) {
         if (type instanceof ValueType.Object) {
             String className = ((ValueType.Object) type).getClassName();
             ClassReader cls = classSource.get(className);
             if (cls != null && cls.getAnnotations().get(JSFunctor.class.getName()) != null) {
-                return wrapFunctor(location, var, cls);
+                return wrapFunctor(location, var, cls, jsType);
             }
         }
-        return wrap(var, type, location.getSourceLocation(), byRef);
+        return wrap(var, type, jsType, location.getSourceLocation(), byRef, bufferType);
     }
 
     boolean isProperFunctor(ClassReader type) {
@@ -75,11 +91,23 @@ class JSValueMarshaller {
                 .count() == 1;
     }
 
-    private Variable wrapFunctor(CallLocation location, Variable var, ClassReader type) {
+    private Variable wrapFunctor(CallLocation location, Variable var, ClassReader type, JSType jsType) {
         if (!isProperFunctor(type)) {
             diagnostics.error(location, "Wrong functor: {{c0}}", type.getName());
             return var;
         }
+
+        if (jsType == JSType.JAVA) {
+            var unwrapNative = new InvokeInstruction();
+            unwrapNative.setLocation(location.getSourceLocation());
+            unwrapNative.setType(InvocationType.SPECIAL);
+            unwrapNative.setMethod(JSMethods.UNWRAP);
+            unwrapNative.setArguments(var);
+            unwrapNative.setReceiver(program.createVariable());
+            replacement.add(unwrapNative);
+            var = unwrapNative.getReceiver();
+        }
+
         String name = type.getMethods().stream()
                 .filter(method -> method.hasModifier(ElementModifier.ABSTRACT))
                 .findFirst().get().getName();
@@ -95,7 +123,8 @@ class JSValueMarshaller {
         return functor;
     }
 
-    Variable wrap(Variable var, ValueType type, TextLocation location, boolean byRef) {
+    Variable wrap(Variable var, ValueType type, JSType jsType, TextLocation location, boolean byRef,
+            JSBufferType bufferType) {
         if (byRef) {
             InvokeInstruction insn = new InvokeInstruction();
             insn.setMethod(JSMethods.ARRAY_DATA);
@@ -108,7 +137,45 @@ class JSValueMarshaller {
 
         if (type instanceof ValueType.Object) {
             String className = ((ValueType.Object) type).getClassName();
+            if (className.equals("java.lang.Object")) {
+                if (jsType != JSType.NULL && jsType != JSType.JS) {
+                    var unwrapNative = new InvokeInstruction();
+                    unwrapNative.setLocation(location);
+                    unwrapNative.setType(InvocationType.SPECIAL);
+                    unwrapNative.setMethod(new MethodReference(JS_WRAPPER_CLASS, "javaToJs", OBJECT, JS_OBJECT));
+                    unwrapNative.setArguments(var);
+                    unwrapNative.setReceiver(program.createVariable());
+                    replacement.add(unwrapNative);
+                    return unwrapNative.getReceiver();
+                } else {
+                    return var;
+                }
+            }
             if (!className.equals("java.lang.String")) {
+                if (hierarchy.isSuperType("java.nio.Buffer", className, false)) {
+                    return wrapBuffer(var, className, bufferType, location);
+                }
+                if (!typeHelper.isJavaScriptClass(className) && !typeHelper.isJavaScriptImplementation(className)) {
+                    var unwrapNative = new InvokeInstruction();
+                    unwrapNative.setLocation(location);
+                    unwrapNative.setType(InvocationType.SPECIAL);
+                    unwrapNative.setMethod(new MethodReference(JS_WRAPPER_CLASS,
+                            "dependencyJavaToJs", OBJECT, JS_OBJECT));
+                    unwrapNative.setArguments(var);
+                    unwrapNative.setReceiver(program.createVariable());
+                    replacement.add(unwrapNative);
+                    return unwrapNative.getReceiver();
+                }
+                if (typeHelper.isJavaScriptClass(className) && jsType == JSType.JAVA) {
+                    var unwrapNative = new InvokeInstruction();
+                    unwrapNative.setLocation(location);
+                    unwrapNative.setType(InvocationType.SPECIAL);
+                    unwrapNative.setMethod(JSMethods.UNWRAP);
+                    unwrapNative.setArguments(var);
+                    unwrapNative.setReceiver(program.createVariable());
+                    replacement.add(unwrapNative);
+                    return unwrapNative.getReceiver();
+                }
                 return var;
             }
         }
@@ -124,7 +191,7 @@ class JSValueMarshaller {
         if (degree <= 1) {
             InvokeInstruction insn = new InvokeInstruction();
             insn.setMethod(referenceCache.getCached(new MethodReference(JS.class.getName(), "wrap",
-                    getWrappedType(type), getWrapperType(type))));
+                    getWrappedType(type), getWrapperType())));
             insn.setArguments(var);
             insn.setReceiver(result);
             insn.setType(InvocationType.SPECIAL);
@@ -153,7 +220,7 @@ class JSValueMarshaller {
 
             insn = new InvokeInstruction();
             insn.setMethod(referenceCache.getCached(new MethodReference(JS.class.getName(), "map",
-                    getWrappedType(type), ValueType.parse(Function.class), getWrapperType(type))));
+                    getWrappedType(type), ValueType.parse(JS.WrapFunction.class), getWrapperType())));
             insn.setArguments(var, function);
             insn.setReceiver(result);
             insn.setType(InvocationType.SPECIAL);
@@ -161,6 +228,101 @@ class JSValueMarshaller {
             replacement.add(insn);
         }
         return result;
+    }
+
+    private Variable wrapBuffer(Variable value, String className, JSBufferType type, TextLocation location) {
+        var extract = new InvokeInstruction();
+        extract.setType(InvocationType.SPECIAL);
+        extract.setMethod(new MethodReference("java.nio.JSBufferHelper", "getArrayBufferView",
+                ValueType.object("java.nio.Buffer"), ValueType.object("org.teavm.jso.typedarrays.ArrayBufferView")));
+        extract.setArguments(value);
+        extract.setReceiver(program.createVariable());
+        extract.setLocation(location);
+        replacement.add(extract);
+
+        type = resolveBufferType(className, type);
+        String targetName;
+        switch (type) {
+            case INT8:
+                targetName = "Int8Array";
+                break;
+            case UINT8:
+                targetName = "Uint8Array";
+                break;
+            case INT16:
+                targetName = "Int16Array";
+                break;
+            case UINT16:
+                targetName = "Uint16Array";
+                break;
+            case INT32:
+                targetName = "Int32Array";
+                break;
+            case UINT32:
+                targetName = "Uint32Array";
+                break;
+            case INT64:
+                targetName = "BigInt64Array";
+                break;
+            case UINT64:
+                targetName = "BigUint64Array";
+                break;
+            case FLOAT32:
+                targetName = "Float32Array";
+                break;
+            case FLOAT64:
+                targetName = "Float64Array";
+                break;
+            case DATA_VIEW:
+                targetName = "DataView";
+                break;
+            default:
+                throw new IllegalStateException();
+        }
+
+        var convert = new InvokeInstruction();
+        convert.setType(InvocationType.SPECIAL);
+        convert.setMethod(new MethodReference("java.nio.JSBufferHelper", "to" + targetName,
+                ValueType.object("org.teavm.jso.typedarrays.ArrayBufferView"),
+                ValueType.object("org.teavm.jso.typedarrays." + targetName)));
+        convert.setArguments(extract.getReceiver());
+        convert.setReceiver(program.createVariable());
+        convert.setLocation(location);
+        replacement.add(convert);
+
+        return convert.getReceiver();
+    }
+
+    private JSBufferType resolveBufferType(String className, JSBufferType type) {
+        if (type == null) {
+            switch (className) {
+                case "java.nio.ByteBuffer":
+                    type = JSBufferType.INT8;
+                    break;
+                case "java.nio.CharBuffer":
+                    type = JSBufferType.UINT16;
+                    break;
+                case "java.nio.ShortBuffer":
+                    type = JSBufferType.INT16;
+                    break;
+                case "java.nio.IntBuffer":
+                    type = JSBufferType.INT32;
+                    break;
+                case "java.nio.LongBuffer":
+                    type = JSBufferType.INT64;
+                    break;
+                case "java.nio.FloatBuffer":
+                    type = JSBufferType.FLOAT32;
+                    break;
+                case "java.nio.DoubleBuffer":
+                    type = JSBufferType.FLOAT64;
+                    break;
+            }
+        }
+        if (type == null) {
+            type = JSBufferType.DATA_VIEW;
+        }
+        return type;
     }
 
     private ValueType getWrappedType(ValueType type) {
@@ -174,20 +336,18 @@ class JSValueMarshaller {
         } else if (type instanceof ValueType.Object) {
             if (type.isObject(String.class)) {
                 return type;
+            } else if (typeHelper.isJavaScriptClass(((ValueType.Object) type).getClassName())) {
+                return JS_OBJECT;
             } else {
-                return JSMethods.JS_OBJECT;
+                return JSMethods.OBJECT;
             }
         } else {
             return type;
         }
     }
 
-    private ValueType getWrapperType(ValueType type) {
-        if (type instanceof ValueType.Array) {
-            return JSMethods.JS_ARRAY;
-        } else {
-            return JSMethods.JS_OBJECT;
-        }
+    private ValueType getWrapperType() {
+        return JS_OBJECT;
     }
 
     private MethodReference getWrapperFunction(ValueType type) {
@@ -203,6 +363,8 @@ class JSValueMarshaller {
                     return JSMethods.CHAR_ARRAY_WRAPPER;
                 case INTEGER:
                     return JSMethods.INT_ARRAY_WRAPPER;
+                case LONG:
+                    return JSMethods.LONG_ARRAY_WRAPPER;
                 case FLOAT:
                     return JSMethods.FLOAT_ARRAY_WRAPPER;
                 case DOUBLE:
@@ -216,7 +378,8 @@ class JSValueMarshaller {
         return JSMethods.ARRAY_WRAPPER;
     }
 
-    Variable unwrapReturnValue(CallLocation location, Variable var, ValueType type, boolean byRef) {
+    Variable unwrapReturnValue(CallLocation location, Variable var, ValueType type, boolean byRef,
+            boolean strictJava) {
         if (byRef) {
             return unwrapByRef(location, var, type);
         }
@@ -228,7 +391,7 @@ class JSValueMarshaller {
                 return unwrapFunctor(location, var, cls);
             }
         }
-        return unwrap(location, var, type);
+        return unwrap(location, var, type, strictJava);
     }
 
     private Variable unwrapByRef(CallLocation location, Variable var, ValueType type) {
@@ -243,6 +406,8 @@ class JSValueMarshaller {
                     return invokeMethod(location, JSMethods.DATA_TO_CHAR_ARRAY, var);
                 case INTEGER:
                     return invokeMethod(location, JSMethods.DATA_TO_INT_ARRAY, var);
+                case LONG:
+                    return invokeMethod(location, JSMethods.DATA_TO_LONG_ARRAY, var);
                 case FLOAT:
                     return invokeMethod(location, JSMethods.DATA_TO_FLOAT_ARRAY, var);
                 case DOUBLE:
@@ -254,41 +419,68 @@ class JSValueMarshaller {
         return invokeMethod(location, JSMethods.DATA_TO_ARRAY, var);
     }
 
-    Variable unwrap(CallLocation location, Variable var, ValueType type) {
+    Variable unwrap(CallLocation location, Variable var, ValueType type, boolean strictJava) {
         if (type instanceof ValueType.Primitive) {
             switch (((ValueType.Primitive) type).getKind()) {
                 case BOOLEAN:
-                    return unwrap(var, "unwrapBoolean", JSMethods.JS_OBJECT, ValueType.BOOLEAN,
+                    return unwrap(var, "unwrapBoolean", JS_OBJECT, ValueType.BOOLEAN,
                             location.getSourceLocation());
                 case BYTE:
-                    return unwrap(var, "unwrapByte", JSMethods.JS_OBJECT, ValueType.BYTE,
+                    return unwrap(var, "unwrapByte", JS_OBJECT, ValueType.BYTE,
                             location.getSourceLocation());
                 case SHORT:
-                    return unwrap(var, "unwrapShort", JSMethods.JS_OBJECT, ValueType.SHORT,
+                    return unwrap(var, "unwrapShort", JS_OBJECT, ValueType.SHORT,
                             location.getSourceLocation());
                 case INTEGER:
-                    return unwrap(var, "unwrapInt", JSMethods.JS_OBJECT, ValueType.INTEGER,
+                    return unwrap(var, "unwrapInt", JS_OBJECT, ValueType.INTEGER,
                             location.getSourceLocation());
                 case CHARACTER:
-                    return unwrap(var, "unwrapCharacter", JSMethods.JS_OBJECT, ValueType.CHARACTER,
+                    return unwrap(var, "unwrapCharacter", JS_OBJECT, ValueType.CHARACTER,
                             location.getSourceLocation());
                 case DOUBLE:
-                    return unwrap(var, "unwrapDouble", JSMethods.JS_OBJECT, ValueType.DOUBLE,
+                    return unwrap(var, "unwrapDouble", JS_OBJECT, ValueType.DOUBLE,
                             location.getSourceLocation());
                 case FLOAT:
-                    return unwrap(var, "unwrapFloat", JSMethods.JS_OBJECT, ValueType.FLOAT,
+                    return unwrap(var, "unwrapFloat", JS_OBJECT, ValueType.FLOAT,
                             location.getSourceLocation());
                 case LONG:
-                    break;
+                    return unwrap(var, "unwrapLong", JS_OBJECT, ValueType.LONG,
+                            location.getSourceLocation());
             }
         } else if (type instanceof ValueType.Object) {
             String className = ((ValueType.Object) type).getClassName();
-            if (className.equals(JSObject.class.getName())) {
+            if (className.equals(Object.class.getName())) {
+                var wrapNative = new InvokeInstruction();
+                wrapNative.setLocation(location.getSourceLocation());
+                wrapNative.setType(InvocationType.SPECIAL);
+                wrapNative.setMethod(strictJava ? JS_TO_JAVA : LIGHTWEIGHT_JS_TO_JAVA);
+                wrapNative.setArguments(var);
+                wrapNative.setReceiver(program.createVariable());
+                replacement.add(wrapNative);
+                return wrapNative.getReceiver();
+            } else if (className.equals(JS_OBJECT_CLASS)) {
                 return var;
             } else if (className.equals("java.lang.String")) {
-                return unwrap(var, "unwrapString", JSMethods.JS_OBJECT, stringType, location.getSourceLocation());
+                return unwrap(var, "unwrapString", JS_OBJECT, stringType, location.getSourceLocation());
             } else if (typeHelper.isJavaScriptClass(className)) {
                 return var;
+            } else {
+                var wrapNative = new InvokeInstruction();
+                wrapNative.setLocation(location.getSourceLocation());
+                wrapNative.setType(InvocationType.SPECIAL);
+                wrapNative.setMethod(LIGHTWEIGHT_JS_TO_JAVA);
+                wrapNative.setArguments(var);
+                wrapNative.setReceiver(program.createVariable());
+                replacement.add(wrapNative);
+
+                var cast = new CastInstruction();
+                cast.setLocation(location.getSourceLocation());
+                cast.setValue(wrapNative.getReceiver());
+                cast.setTargetType(type);
+                cast.setReceiver(program.createVariable());
+                replacement.add(cast);
+
+                return cast.getReceiver();
             }
         } else if (type instanceof ValueType.Array) {
             return unwrapArray(location, var, (ValueType.Array) type);
@@ -334,8 +526,8 @@ class JSValueMarshaller {
 
         if (insn.getMethod().parameterCount() == 2) {
             Variable cls = program.createVariable();
-            ClassConstantInstruction clsInsn = new ClassConstantInstruction();
-            clsInsn.setConstant(type);
+            var clsInsn = new ClassConstantInstruction();
+            clsInsn.setConstant(JSClassProcessor.processType(typeHelper, type));
             clsInsn.setLocation(location.getSourceLocation());
             clsInsn.setReceiver(cls);
             replacement.add(clsInsn);
@@ -358,8 +550,8 @@ class JSValueMarshaller {
 
         if (insn.getMethod().parameterCount() == 1) {
             Variable cls = program.createVariable();
-            ClassConstantInstruction clsInsn = new ClassConstantInstruction();
-            clsInsn.setConstant(type);
+            var clsInsn = new ClassConstantInstruction();
+            clsInsn.setConstant(JSClassProcessor.processType(typeHelper, type));
             clsInsn.setLocation(location.getSourceLocation());
             clsInsn.setReceiver(cls);
             replacement.add(clsInsn);
@@ -373,8 +565,8 @@ class JSValueMarshaller {
             type = ValueType.arrayOf(type);
             Variable cls = program.createVariable();
 
-            ClassConstantInstruction clsInsn = new ClassConstantInstruction();
-            clsInsn.setConstant(type);
+            var clsInsn = new ClassConstantInstruction();
+            clsInsn.setConstant(JSClassProcessor.processType(typeHelper, type));
             clsInsn.setLocation(location.getSourceLocation());
             clsInsn.setReceiver(cls);
             replacement.add(clsInsn);
@@ -389,8 +581,8 @@ class JSValueMarshaller {
         }
 
         Variable cls = program.createVariable();
-        ClassConstantInstruction clsInsn = new ClassConstantInstruction();
-        clsInsn.setConstant(ValueType.arrayOf(type));
+        var clsInsn = new ClassConstantInstruction();
+        clsInsn.setConstant(JSClassProcessor.processType(typeHelper, ValueType.arrayOf(type)));
         clsInsn.setLocation(location.getSourceLocation());
         clsInsn.setReceiver(cls);
         replacement.add(clsInsn);
@@ -398,10 +590,18 @@ class JSValueMarshaller {
         insn = new InvokeInstruction();
         insn.setMethod(JSMethods.UNMAP_ARRAY);
         insn.setArguments(cls, var, function);
-        insn.setReceiver(var);
+        insn.setReceiver(program.createVariable());
         insn.setType(InvocationType.SPECIAL);
         insn.setLocation(location.getSourceLocation());
         replacement.add(insn);
+
+        var cast = new CastInstruction();
+        cast.setTargetType(ValueType.arrayOf(ValueType.arrayOf(type)));
+        cast.setWeak(true);
+        cast.setValue(insn.getReceiver());
+        cast.setReceiver(var);
+        cast.setLocation(location.getSourceLocation());
+        replacement.add(cast);
 
         return var;
     }
@@ -419,6 +619,8 @@ class JSValueMarshaller {
                     return JSMethods.UNWRAP_CHAR_ARRAY;
                 case INTEGER:
                     return JSMethods.UNWRAP_INT_ARRAY;
+                case LONG:
+                    return JSMethods.UNWRAP_LONG_ARRAY;
                 case FLOAT:
                     return JSMethods.UNWRAP_FLOAT_ARRAY;
                 case DOUBLE:
@@ -445,6 +647,8 @@ class JSValueMarshaller {
                     return JSMethods.CHAR_ARRAY_UNWRAPPER;
                 case INTEGER:
                     return JSMethods.INT_ARRAY_UNWRAPPER;
+                case LONG:
+                    return JSMethods.LONG_ARRAY_UNWRAPPER;
                 case FLOAT:
                     return JSMethods.FLOAT_ARRAY_UNWRAPPER;
                 case DOUBLE:
@@ -493,16 +697,125 @@ class JSValueMarshaller {
     }
 
     Variable addStringWrap(Variable var, TextLocation location) {
-        return wrap(var, stringType, location, false);
+        return wrap(var, stringType, JSType.MIXED, location, false, null);
     }
 
     Variable addString(String str, TextLocation location) {
         Variable var = program.createVariable();
-        StringConstantInstruction nameInsn = new StringConstantInstruction();
+        var nameInsn = new StringConstantInstruction();
         nameInsn.setReceiver(var);
         nameInsn.setConstant(str);
         nameInsn.setLocation(location);
         replacement.add(nameInsn);
         return var;
+    }
+
+    Variable addJsString(String str, TextLocation location) {
+        return addStringWrap(addString(str, location), location);
+    }
+
+    Variable classRef(String className, TextLocation location) {
+        return classRef(className, null, location);
+    }
+
+    Variable classRef(String className, AnnotationContainerReader annotations, TextLocation location) {
+        String name = null;
+        String module = null;
+        var cls = classSource.get(className);
+        if (cls != null) {
+            name = cls.getSimpleName();
+            var jsExport = cls.getAnnotations().get(JSClass.class.getName());
+            if (jsExport != null) {
+                var nameValue = jsExport.getValue("name");
+                if (nameValue != null) {
+                    var nameValueString = nameValue.getString();
+                    if (!nameValueString.isEmpty()) {
+                        name = nameValueString;
+                    }
+                }
+            }
+            module = moduleName(cls.getAnnotations());
+        }
+        if (name == null) {
+            name = cls.getName().substring(cls.getName().lastIndexOf('.') + 1);
+        }
+        if (module == null && annotations != null) {
+            module = moduleName(annotations);
+        }
+        return module != null ? moduleRef(module, name, location) : globalRef(name, location);
+    }
+
+    Variable moduleRef(String className, AnnotationContainerReader annotations, TextLocation location) {
+        String module = null;
+        var cls = classSource.get(className);
+        if (cls != null) {
+            module = moduleName(cls.getAnnotations());
+        }
+        if (module == null && annotations != null) {
+            module = moduleName(annotations);
+        }
+        return module != null ? moduleRef(module, location) : nullInstance(location);
+    }
+
+    private String moduleName(AnnotationContainerReader annotations) {
+        var jsModule = annotations.get(JSModule.class.getName());
+        if (jsModule != null) {
+            return jsModule.getValue("value").getString();
+        }
+        return null;
+    }
+
+    Variable globalRef(String name, TextLocation location) {
+        var invoke = new InvokeInstruction();
+        invoke.setType(InvocationType.SPECIAL);
+        invoke.setMethod(JSMethods.GLOBAL);
+        invoke.setArguments(addString(name, location));
+        invoke.setReceiver(program.createVariable());
+        invoke.setLocation(location);
+        replacement.add(invoke);
+
+        return invoke.getReceiver();
+    }
+
+    Variable moduleRef(String module, String name, TextLocation location) {
+        return dot(moduleRef(module, location), name, location);
+    }
+
+    Variable moduleRef(String module, TextLocation location) {
+        var moduleNameInsn = new StringConstantInstruction();
+        moduleNameInsn.setReceiver(program.createVariable());
+        moduleNameInsn.setConstant(module);
+        moduleNameInsn.setLocation(location);
+        replacement.add(moduleNameInsn);
+
+        var invoke = new InvokeInstruction();
+        invoke.setType(InvocationType.SPECIAL);
+        invoke.setMethod(JSMethods.IMPORT_MODULE);
+        invoke.setArguments(moduleNameInsn.getReceiver());
+        invoke.setReceiver(program.createVariable());
+        invoke.setLocation(location);
+        replacement.add(invoke);
+
+        return invoke.getReceiver();
+    }
+
+    Variable dot(Variable instance, String name, TextLocation location) {
+        var get = new InvokeInstruction();
+        get.setType(InvocationType.SPECIAL);
+        get.setMethod(JSMethods.GET_PURE);
+        get.setReceiver(program.createVariable());
+        get.setArguments(instance, addJsString(name, location));
+        get.setLocation(location);
+        replacement.add(get);
+
+        return get.getReceiver();
+    }
+
+    Variable nullInstance(TextLocation location) {
+        var nullConstant = new NullConstantInstruction();
+        nullConstant.setReceiver(program.createVariable());
+        nullConstant.setLocation(location);
+        replacement.add(nullConstant);
+        return nullConstant.getReceiver();
     }
 }

@@ -20,10 +20,10 @@ import java.math.BigInteger;
 import java.text.DecimalFormatSymbols;
 import java.util.Arrays;
 import org.teavm.classlib.impl.text.DoubleAnalyzer;
+import org.teavm.classlib.impl.text.DoubleSynthesizer;
 import org.teavm.classlib.impl.text.FloatAnalyzer;
 import org.teavm.classlib.impl.unicode.CLDRHelper;
 import org.teavm.classlib.java.lang.TArithmeticException;
-import org.teavm.classlib.java.lang.TDouble;
 import org.teavm.classlib.java.util.TLocale;
 
 public class TDecimalFormat extends TNumberFormat {
@@ -245,7 +245,7 @@ public class TDecimalFormat extends TNumberFormat {
             if (digit >= 0 && digit <= 9) {
                 if (!fractionalPart) {
                     ++intSize;
-                    allowGroupSeparator = groupingSize > 1;
+                    allowGroupSeparator = isGroupingUsed() && groupingSize > 1;
                 } else {
                     ++fracSize;
                 }
@@ -383,7 +383,7 @@ public class TDecimalFormat extends TNumberFormat {
             if (digit >= 0 && digit <= 9) {
                 if (!fractionalPart) {
                     ++intSize;
-                    allowGroupSeparator = groupingSize > 1;
+                    allowGroupSeparator = isGroupingUsed() && groupingSize > 1;
                 } else {
                     ++fracSize;
                 }
@@ -494,15 +494,22 @@ public class TDecimalFormat extends TNumberFormat {
             }
         }
 
-        // Expose result
         if (mantissa == 0 && !positive) {
             return -0.0;
         }
         if (exponent == 0) {
             return positive ? mantissa : -mantissa;
         }
-        double result = TDouble.decimalExponent(exponent) * mantissa;
-        return positive ? result : -result;
+
+        exponent += 18;
+        if (mantissa != 0) {
+            while (mantissa / 1000000000000000000L == 0) {
+                mantissa *= 10;
+                exponent--;
+            }
+        }
+
+        return DoubleSynthesizer.synthesizeDouble(mantissa, exponent, !positive);
     }
 
     @Override
@@ -703,7 +710,7 @@ public class TDecimalFormat extends TNumberFormat {
         int digitPos = Math.max(intLength, getMinimumIntegerDigits()) - 1;
         for (int i = getMinimumIntegerDigits() - 1; i >= intLength; --i) {
             buffer.append('0');
-            if (groupingSize > 0 && digitPos % groupingSize == 0 && digitPos > 0) {
+            if (isGroupingUsed() && groupingSize > 0 && digitPos % groupingSize == 0 && digitPos > 0) {
                 buffer.append(symbols.getGroupingSeparator());
             }
             --digitPos;
@@ -716,7 +723,7 @@ public class TDecimalFormat extends TNumberFormat {
             long mantissaDigitMask = POW10_ARRAY[mantissaDigit--];
             buffer.append(forDigit(Math.abs((int) (mantissa / mantissaDigitMask))));
             mantissa %= mantissaDigitMask;
-            if (groupingSize > 0 && digitPos % groupingSize == 0 && digitPos > 0) {
+            if (isGroupingUsed() && groupingSize > 0 && digitPos % groupingSize == 0 && digitPos > 0) {
                 buffer.append(symbols.getGroupingSeparator());
             }
             --digitPos;
@@ -726,7 +733,7 @@ public class TDecimalFormat extends TNumberFormat {
         intLength -= significantIntDigits;
         for (int i = 0; i < intLength; ++i) {
             buffer.append('0');
-            if (groupingSize > 0 && digitPos % groupingSize == 0 && digitPos > 0) {
+            if (isGroupingUsed() && groupingSize > 0 && digitPos % groupingSize == 0 && digitPos > 0) {
                 buffer.append(symbols.getGroupingSeparator());
             }
             --digitPos;
@@ -894,7 +901,7 @@ public class TDecimalFormat extends TNumberFormat {
         int digitPos = Math.max(intLength, getMinimumIntegerDigits()) - 1;
         for (int i = getMinimumIntegerDigits() - 1; i >= intLength; --i) {
             buffer.append('0');
-            if (groupingSize > 0 && digitPos % groupingSize == 0 && digitPos > 0) {
+            if (isGroupingUsed() && groupingSize > 0 && digitPos % groupingSize == 0 && digitPos > 0) {
                 buffer.append(symbols.getGroupingSeparator());
             }
             --digitPos;
@@ -907,7 +914,7 @@ public class TDecimalFormat extends TNumberFormat {
             BigInteger[] parts = mantissa.divideAndRemainder(mantissaDigitMask);
             buffer.append(forDigit(Math.abs(parts[0].intValue())));
             mantissa = parts[1];
-            if (groupingSize > 0 && digitPos % groupingSize == 0 && digitPos > 0) {
+            if (isGroupingUsed() && groupingSize > 0 && digitPos % groupingSize == 0 && digitPos > 0) {
                 buffer.append(symbols.getGroupingSeparator());
             }
             --digitPos;
@@ -919,7 +926,7 @@ public class TDecimalFormat extends TNumberFormat {
         intLength -= significantIntDigits;
         for (int i = 0; i < intLength; ++i) {
             buffer.append('0');
-            if (groupingSize > 0 && digitPos % groupingSize == 0 && digitPos > 0) {
+            if (isGroupingUsed() && groupingSize > 0 && digitPos % groupingSize == 0 && digitPos > 0) {
                 buffer.append(symbols.getGroupingSeparator());
             }
             --digitPos;

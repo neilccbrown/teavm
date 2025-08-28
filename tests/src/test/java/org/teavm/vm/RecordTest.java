@@ -16,19 +16,30 @@
 package org.teavm.vm;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.teavm.junit.EachTestCompiledSeparately;
 import org.teavm.junit.TeaVMTestRunner;
 
 @RunWith(TeaVMTestRunner.class)
+@EachTestCompiledSeparately
 public class RecordTest {
     @Test
     public void equalsMethod() {
+        assertFalse(new A(2, "q").equals(null));
         assertEquals(new A(2, "q"), new A(2, "q"));
         assertNotEquals(new A(2, "q"), new A(3, "q"));
         assertNotEquals(new A(2, "q"), new A(2, "w"));
+
+        assertEquals(new WithLong(23), new WithLong(23));
+        assertNotEquals(new WithLong(23), new WithLong(24));
+        assertNotEquals(new WithLong(23), new WithFloat(23));
+
+        assertEquals(new WithFloat(1.23f), new WithFloat(1.23f));
+        assertNotEquals(new WithFloat(1.23f), new WithFloat(1.24f));
     }
 
     @Test
@@ -38,37 +49,42 @@ public class RecordTest {
 
     @Test
     public void toStringMethod() {
-        String s = new B(2, "q", 3L).toString();
+        String s = new B(2, "q", 3L, (byte) 4, (short) 5).toString();
 
         int index = 0;
 
-        index = s.indexOf("x", index);
+        index = s.indexOf("B", index);
+        assertTrue(index >= 0);
+        ++index;
+
+        index = checkRecordKey(s, "a", "2", index);
+        index = checkRecordKey(s, "b", "q", index);
+        index = checkRecordKey(s, "c", "3", index);
+        index = checkRecordKey(s, "d", "4", index);
+        checkRecordKey(s, "e", "5", index);
+    }
+
+    private static int checkRecordKey(String s, String key, String value, int index) {
+        index = s.indexOf(key, index);
         assertTrue(index > 0);
         ++index;
 
-        index = s.indexOf("2", index);
+        index = s.indexOf(value, index);
         assertTrue(index > 0);
         ++index;
 
-        index = s.indexOf("y", index);
-        assertTrue(index > 0);
-        ++index;
-
-        index = s.indexOf("q", index);
-        assertTrue(index > 0);
-        ++index;
-
-        index = s.indexOf("z", index);
-        assertTrue(index > 0);
-        ++index;
-
-        index = s.indexOf("3", index);
-        assertTrue(index > 0);
+        return index;
     }
 
     record A(int x, String y) {
     }
 
-    record B(int x, String y, Long z) {
+    record B(int a, String b, Long c, byte d, short e) {
+    }
+
+    record WithLong(long a) {
+    }
+
+    record WithFloat(float a) {
     }
 }

@@ -15,18 +15,14 @@
  */
 package org.teavm.classlib.java.lang;
 
+import java.util.Arrays;
 import org.teavm.classlib.impl.text.DoubleAnalyzer;
 import org.teavm.classlib.impl.text.FloatAnalyzer;
 import org.teavm.classlib.java.io.TSerializable;
 import org.teavm.classlib.java.util.TArrays;
 
-class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequence {
+class TAbstractStringBuilder implements TSerializable, TCharSequence {
     static class Constants {
-        static int[] intPowersOfTen = { 1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000,
-                1000000000 };
-        static long[] longPowersOfTen = { 1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000,
-                1000000000, 10000000000L, 100000000000L, 1000000000000L, 10000000000000L, 100000000000000L,
-                1000000000000000L, 10000000000000000L, 100000000000000000L, 1000000000000000000L };
         static final long[] longLogPowersOfTen = { 1, 10, 100, 10000, 100000000, 10000000000000000L, };
 
         static final DoubleAnalyzer.Result doubleAnalysisResult = new DoubleAnalyzer.Result();
@@ -44,11 +40,11 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
         buffer = new char[capacity];
     }
 
-    public TAbstractStringBuilder(TString value) {
-        this((TCharSequence) value);
+    public TAbstractStringBuilder(String value) {
+        this((CharSequence) value);
     }
 
-    public TAbstractStringBuilder(TCharSequence value) {
+    public TAbstractStringBuilder(CharSequence value) {
         buffer = new char[value.length()];
         for (int i = 0; i < buffer.length; ++i) {
             buffer[i] = value.charAt(i);
@@ -103,22 +99,22 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
             positive = false;
             value = -value;
         }
-        if (value < radix) {
+        if (Integer.compareUnsigned(value, radix) < 0) {
             if (!positive) {
                 insertSpace(target, target + 2);
                 buffer[target++] = '-';
             } else {
                 insertSpace(target, target + 1);
             }
-            buffer[target++] = TCharacter.forDigit(value, radix);
+            buffer[target++] = Character.forDigit(value, radix);
         } else {
             int pos = 1;
             int sz = 1;
-            int posLimit = TInteger.MAX_VALUE / radix;
-            while (pos * radix <= value) {
+            var posLimit = Integer.divideUnsigned(-1, radix);
+            while (Integer.compareUnsigned(pos * radix, value) <= 0) {
                 pos *= radix;
                 ++sz;
-                if (pos > posLimit) {
+                if (Integer.compareUnsigned(pos, posLimit) > 0) {
                     break;
                 }
             }
@@ -129,10 +125,10 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
             if (!positive) {
                 buffer[target++] = '-';
             }
-            while (pos > 0) {
-                buffer[target++] = TCharacter.forDigit(value / pos, radix);
-                value %= pos;
-                pos /= radix;
+            while (pos != 0) {
+                buffer[target++] = Character.forDigit(Integer.divideUnsigned(value, pos), radix);
+                value = Integer.remainderUnsigned(value, pos);
+                pos = Integer.divideUnsigned(pos, radix);
             }
         }
         return this;
@@ -152,7 +148,7 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
             positive = false;
             value = -value;
         }
-        if (value < radix) {
+        if (Long.compareUnsigned(value, radix) < 0) {
             if (!positive) {
                 insertSpace(target, target + 2);
                 buffer[target++] = '-';
@@ -163,9 +159,13 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
         } else {
             int sz = 1;
             long pos = 1;
-            while (pos * radix > pos && pos * radix <= value) {
+            var posLimit = Long.divideUnsigned(-1, radix);
+            while (Long.compareUnsigned(pos * radix, value) <= 0) {
                 pos *= radix;
                 ++sz;
+                if (Long.compareUnsigned(pos, posLimit) > 0) {
+                    break;
+                }
             }
             if (!positive) {
                 ++sz;
@@ -174,14 +174,15 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
             if (!positive) {
                 buffer[target++] = '-';
             }
-            while (pos > 0) {
-                buffer[target++] = TCharacter.forDigit((int) (value / pos), radix);
-                value %= pos;
-                pos /= radix;
+            while (pos != 0) {
+                buffer[target++] = TCharacter.forDigit((int) Long.divideUnsigned(value, pos), radix);
+                value = Long.remainderUnsigned(value, pos);
+                pos = Long.divideUnsigned(pos, radix);
             }
         }
         return this;
     }
+
 
     protected TAbstractStringBuilder append(float value) {
         return insert(length, value);
@@ -189,25 +190,27 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
 
     protected TAbstractStringBuilder insert(int target, float value) {
         if (value == 0) {
-            insertSpace(target, target + 3);
-            buffer[target++] = '0';
-            buffer[target++] = '.';
-            buffer[target++] = '0';
-            return this;
-        } else if (value == -0) {
-            insertSpace(target, target + 4);
-            buffer[target++] = '-';
-            buffer[target++] = '0';
-            buffer[target++] = '.';
-            buffer[target++] = '0';
-            return this;
-        } else if (TFloat.isNaN(value)) {
+            if (1 / value == Float.POSITIVE_INFINITY) {
+                insertSpace(target, target + 3);
+                buffer[target++] = '0';
+                buffer[target++] = '.';
+                buffer[target++] = '0';
+                return this;
+            } else {
+                insertSpace(target, target + 4);
+                buffer[target++] = '-';
+                buffer[target++] = '0';
+                buffer[target++] = '.';
+                buffer[target++] = '0';
+                return this;
+            }
+        } else if (Float.isNaN(value)) {
             insertSpace(target, target + 3);
             buffer[target++] = 'N';
             buffer[target++] = 'a';
             buffer[target++] = 'N';
             return this;
-        } else if (TFloat.isInfinite(value)) {
+        } else if (Float.isInfinite(value)) {
             if (value > 0) {
                 insertSpace(target, target + 8);
             } else {
@@ -225,7 +228,7 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
             return this;
         }
 
-        FloatAnalyzer.Result number = Constants.floatAnalysisResult;
+        var number = Constants.floatAnalysisResult;
         FloatAnalyzer.analyze(value, number);
         int mantissa = number.mantissa;
         int exp = number.exponent;
@@ -242,6 +245,8 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
         if (zeros > 0) {
             digits -= zeros;
         }
+        var leadingZeros = 0;
+        var leadingZero = false;
 
         // Handle special case of exponent close to 0
         if (exp < 7 && exp >= -3) {
@@ -250,8 +255,10 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
                 digits = Math.max(digits, intPart + 1);
                 exp = 0;
             } else {
-                mantissa /= Constants.intPowersOfTen[-exp];
-                digits -= exp;
+                intPart = 0;
+                leadingZeros = -exp - 1;
+                leadingZero = true;
+                sz++;
                 exp = 0;
             }
         }
@@ -270,7 +277,7 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
         if (exp != 0 && digits == intPart) {
             digits++;
         }
-        sz += digits;
+        sz += digits + leadingZeros;
 
         // Print mantissa
         insertSpace(target, target + sz);
@@ -278,6 +285,13 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
             buffer[target++] = '-';
         }
         int pos = FloatAnalyzer.MAX_POS;
+        if (leadingZero) {
+            buffer[target++] = '0';
+            buffer[target++] = '.';
+            while (leadingZeros-- > 0) {
+                buffer[target++] = '0';
+            }
+        }
         for (int i = 0; i < digits; ++i) {
             int intDigit;
             if (pos > 0) {
@@ -314,25 +328,27 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
 
     protected TAbstractStringBuilder insert(int target, double value) {
         if (value == 0) {
-            insertSpace(target, target + 3);
-            buffer[target++] = '0';
-            buffer[target++] = '.';
-            buffer[target++] = '0';
-            return this;
-        } else if (value == -0) {
-            insertSpace(target, target + 4);
-            buffer[target++] = '-';
-            buffer[target++] = '0';
-            buffer[target++] = '.';
-            buffer[target++] = '0';
-            return this;
-        } else if (TDouble.isNaN(value)) {
+            if (1 / value == Double.POSITIVE_INFINITY) {
+                insertSpace(target, target + 3);
+                buffer[target++] = '0';
+                buffer[target++] = '.';
+                buffer[target++] = '0';
+                return this;
+            } else {
+                insertSpace(target, target + 4);
+                buffer[target++] = '-';
+                buffer[target++] = '0';
+                buffer[target++] = '.';
+                buffer[target++] = '0';
+                return this;
+            }
+        } else if (Double.isNaN(value)) {
             insertSpace(target, target + 3);
             buffer[target++] = 'N';
             buffer[target++] = 'a';
             buffer[target++] = 'N';
             return this;
-        } else if (TDouble.isInfinite(value)) {
+        } else if (Double.isInfinite(value)) {
             if (value > 0) {
                 insertSpace(target, target + 8);
             } else {
@@ -350,7 +366,7 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
             return this;
         }
 
-        DoubleAnalyzer.Result number = Constants.doubleAnalysisResult;
+        var number = Constants.doubleAnalysisResult;
         DoubleAnalyzer.analyze(value, number);
         long mantissa = number.mantissa;
         int exp = number.exponent;
@@ -369,6 +385,8 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
         if (zeros > 0) {
             digits -= zeros;
         }
+        var leadingZeros = 0;
+        var leadingZero = false;
 
         // Handle special case of exponent close to 0
         if (exp < 7 && exp >= -3) {
@@ -377,8 +395,10 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
                 digits = Math.max(digits, intPart + 1);
                 exp = 0;
             } else {
-                mantissa /= Constants.longPowersOfTen[-exp];
-                digits -= exp;
+                intPart = 0;
+                leadingZeros = -exp - 1;
+                leadingZero = true;
+                sz++;
                 exp = 0;
             }
         }
@@ -400,7 +420,7 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
         if (exp != 0 && digits == intPart) {
             digits++;
         }
-        sz += digits;
+        sz += digits + leadingZeros;
 
         // Print mantissa
         insertSpace(target, target + sz);
@@ -408,6 +428,13 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
             buffer[target++] = '-';
         }
         long pos = DoubleAnalyzer.DOUBLE_MAX_POS;
+        if (leadingZero) {
+            buffer[target++] = '0';
+            buffer[target++] = '.';
+            while (leadingZeros-- > 0) {
+                buffer[target++] = '0';
+            }
+        }
         for (int i = 0; i < digits; ++i) {
             int intDigit;
             if (pos > 0) {
@@ -523,7 +550,7 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
         int newLength = buffer.length < Integer.MAX_VALUE / 2
                 ? Math.max(capacity, Math.max(buffer.length * 2, 5))
                 : Integer.MAX_VALUE;
-        buffer = TArrays.copyOf(buffer, newLength);
+        buffer = Arrays.copyOf(buffer, newLength);
     }
 
     public void trimToSize() {
@@ -552,6 +579,11 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
             throw new TIndexOutOfBoundsException();
         }
         return buffer[index];
+    }
+
+    @Override
+    public boolean isEmpty() {
+        return length == 0;
     }
 
     protected TAbstractStringBuilder append(TCharSequence s, int start, int end) {
@@ -632,11 +664,14 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
     }
 
     public TAbstractStringBuilder delete(int start, int end) {
-        if (start > end || start > length) {
+        if (start < 0 || start > end || start > length) {
             throw new TStringIndexOutOfBoundsException();
         }
         if (start == end) {
             return this;
+        }
+        if (end > length) {
+            end = length;
         }
         int sz = length - end;
         length -= end - start;
@@ -647,6 +682,12 @@ class TAbstractStringBuilder extends TObject implements TSerializable, TCharSequ
     }
 
     public TAbstractStringBuilder replace(int start, int end, TString str) {
+        if (start < 0 || start > end || start > length) {
+            throw new TStringIndexOutOfBoundsException();
+        }
+        if (end > length) {
+            end = length;
+        }
         int oldSize = end - start;
         if (str.length() > oldSize) {
             insertSpace(end, start + str.length());

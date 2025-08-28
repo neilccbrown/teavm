@@ -15,17 +15,17 @@ static int32_t wasm_heap_size;
 static int wasm_args;
 static char** wasm_argv;
 
-float teavm_teavm_getNaN() {
-    return NAN;
-}
-
 #define teavmMath_sin sin
 #define teavmMath_cos cos
 #define teavmMath_sqrt sqrt
 #define teavmMath_ceil ceil
 #define teavmMath_floor floor
 
-int64_t teavm_currentTimeMillis() {
+double teavmMath_random() {
+    return rand() / (double) RAND_MAX;
+}
+
+double teavm_currentTimeMillis() {
     struct timespec time;
     clock_gettime(CLOCK_REALTIME, &time);
 
@@ -152,4 +152,18 @@ int32_t wasi_snapshot_preview1_fd_write(int32_t fd, int32_t iovs, int32_t count,
     int32_t* resultPtr = (int32_t*) (wasm_heap + result);
     *resultPtr = written;
     return 0;
+}
+
+void teavm_putwcharsOut(int32_t chars, int32_t count) {
+    char* chars_array = (char*) (wasm_heap + chars);
+    for (int32_t i = 0; i < count; ++i) {
+        putc(chars_array[i], stdout);
+    }
+}
+
+void teavm_putwcharsErr(int32_t chars, int32_t count) {
+    char* chars_array = (char*) (wasm_heap + chars);
+    for (int32_t i = 0; i < count; ++i) {
+        putc(chars_array[i], stderr);
+    }
 }

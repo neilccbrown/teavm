@@ -33,11 +33,9 @@ public class TLimitingStreamImpl<T> extends TSimpleStreamImpl<T> {
         if (remaining == 0) {
             return false;
         }
-        boolean result = sourceStream.next(e -> {
-            if (remaining-- == 0) {
-                return false;
-            }
-            return consumer.test(e);
+        var result = sourceStream.next(e -> {
+            var hasRemaining = --remaining > 0;
+            return consumer.test(e) && hasRemaining;
         });
         if (!result) {
             remaining = 0;
@@ -52,7 +50,7 @@ public class TLimitingStreamImpl<T> extends TSimpleStreamImpl<T> {
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() {
         sourceStream.close();
     }
 }

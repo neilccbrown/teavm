@@ -17,6 +17,7 @@ package org.teavm.backend.wasm.intrinsics;
 
 import org.teavm.ast.InvocationExpr;
 import org.teavm.backend.wasm.model.WasmLocal;
+import org.teavm.backend.wasm.model.WasmNumType;
 import org.teavm.backend.wasm.model.WasmType;
 import org.teavm.backend.wasm.model.expression.WasmBlock;
 import org.teavm.backend.wasm.model.expression.WasmBranch;
@@ -47,7 +48,7 @@ public class FloatIntrinsic implements WasmIntrinsic {
             case "isNaN":
             case "isInfinite":
             case "isFinite":
-            case "floatToIntBits":
+            case "floatToRawIntBits":
             case "intBitsToFloat":
                 return true;
             default:
@@ -61,26 +62,19 @@ public class FloatIntrinsic implements WasmIntrinsic {
             case "getNaN":
                 return new WasmFloat32Constant(Float.NaN);
             case "isNaN":
-                return testSpecialIEEE(manager.generate(invocation.getArguments().get(0)), manager,
-                        WasmIntBinaryOperation.NE);
+                return testNaN(manager.generate(invocation.getArguments().get(0)), manager);
             case "isInfinite":
-                return testSpecialIEEE(manager.generate(invocation.getArguments().get(0)), manager,
-                    WasmIntBinaryOperation.EQ);
-            case "isFinite": {
-                WasmExpression result = testSpecialIEEE(manager.generate(invocation.getArguments().get(0)), manager,
-                        WasmIntBinaryOperation.EQ);
-                result = new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.EQ, result,
-                        new WasmInt32Constant(0));
-                return result;
-            }
-            case "floatToIntBits": {
-                WasmConversion conversion = new WasmConversion(WasmType.FLOAT32, WasmType.INT32, false,
+                return testIsInfinite(manager.generate(invocation.getArguments().get(0)));
+            case "isFinite":
+                return testIsFinite(manager.generate(invocation.getArguments().get(0)));
+            case "floatToRawIntBits": {
+                WasmConversion conversion = new WasmConversion(WasmNumType.FLOAT32, WasmNumType.INT32, false,
                         manager.generate(invocation.getArguments().get(0)));
                 conversion.setReinterpret(true);
                 return conversion;
             }
             case "intBitsToFloat": {
-                WasmConversion conversion = new WasmConversion(WasmType.INT32, WasmType.FLOAT32, false,
+                WasmConversion conversion = new WasmConversion(WasmNumType.INT32, WasmNumType.FLOAT32, false,
                         manager.generate(invocation.getArguments().get(0)));
                 conversion.setReinterpret(true);
                 return conversion;
@@ -90,13 +84,12 @@ public class FloatIntrinsic implements WasmIntrinsic {
         }
     }
 
-    private WasmExpression testSpecialIEEE(WasmExpression expression, WasmIntrinsicManager manager,
-            WasmIntBinaryOperation fractionOp) {
+    private WasmExpression testNaN(WasmExpression expression, WasmIntrinsicManager manager) {
         WasmLocal bitsVar = manager.getTemporary(WasmType.INT32);
         WasmBlock block = new WasmBlock(false);
-        block.setType(WasmType.INT32);
+        block.setType(WasmType.INT32.asBlock());
 
-        WasmConversion conversion = new WasmConversion(WasmType.FLOAT32, WasmType.INT32, false, expression);
+        WasmConversion conversion = new WasmConversion(WasmNumType.FLOAT32, WasmNumType.INT32, false, expression);
         conversion.setReinterpret(true);
         block.getBody().add(new WasmSetLocal(bitsVar, conversion));
 
@@ -106,14 +99,36 @@ public class FloatIntrinsic implements WasmIntrinsic {
                 new WasmGetLocal(bitsVar), new WasmInt32Constant(FRACTION_BITS));
         WasmExpression testExponent = new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.NE,
                 exponentBits, new WasmInt32Constant(EXPONENT_BITS));
-        WasmExpression testFraction = new WasmIntBinary(WasmIntType.INT32, fractionOp,
+        WasmExpression testFraction = new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.NE,
                 fractionBits, new WasmInt32Constant(0));
 
         WasmBranch breakIfWrongExponent = new WasmBranch(testExponent, block);
         breakIfWrongExponent.setResult(new WasmInt32Constant(0));
         block.getBody().add(new WasmDrop(breakIfWrongExponent));
 
+        manager.releaseTemporary(bitsVar);
+
         block.getBody().add(testFraction);
         return block;
+    }
+
+    private WasmExpression testIsInfinite(WasmExpression expression) {
+        var conversion = new WasmConversion(WasmNumType.FLOAT32, WasmNumType.INT32, false, expression);
+        conversion.setReinterpret(true);
+
+        var result = new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.AND,
+                conversion, new WasmInt32Constant(EXPONENT_BITS));
+        return new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.EQ, result,
+                new WasmInt32Constant(EXPONENT_BITS));
+    }
+
+    private WasmExpression testIsFinite(WasmExpression expression) {
+        var conversion = new WasmConversion(WasmNumType.FLOAT32, WasmNumType.INT32, false, expression);
+        conversion.setReinterpret(true);
+
+        var result = new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.AND,
+                conversion, new WasmInt32Constant(EXPONENT_BITS));
+        return new WasmIntBinary(WasmIntType.INT32, WasmIntBinaryOperation.NE, result,
+                new WasmInt32Constant(EXPONENT_BITS));
     }
 }

@@ -18,12 +18,19 @@ package org.teavm.classlib.java.lang;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.teavm.junit.TeaVMTestRunner;
 
 @RunWith(TeaVMTestRunner.class)
 public class IntegerTest {
+    @Test
+    public void testRightUnsignedShift() {
+        assertEquals(1 << 31, Integer.MIN_VALUE >>> Integer.parseInt("0"));
+        assertEquals(-1, -1 >>> Integer.parseInt("0"));
+    }
+
     @Test
     public void parsesInteger() {
         assertEquals(0, Integer.parseInt("0", 10));
@@ -37,9 +44,77 @@ public class IntegerTest {
     }
 
     @Test
-    public void parsesMinInteger() {
+    public void parsesIntegerInSubstring() {
+        assertEquals(0, Integer.parseInt("[0]", 1, 2, 10));
+        assertEquals(473, Integer.parseInt("[473]", 1, 4, 10));
+        assertEquals(42, Integer.parseInt("[+42]", 1, 4, 10));
+        assertEquals(-255, Integer.parseInt("[-FF]", 1, 4, 16));
+        try {
+            Integer.parseInt("[-FF]", 1, 5, 16);
+            fail();
+        } catch (NumberFormatException e) {
+            // ok
+        }
+        try {
+            Integer.parseInt("[-FF]", 1, 6, 16);
+            fail();
+        } catch (IndexOutOfBoundsException e) {
+            // ok
+        }
+        try {
+            Integer.parseInt("[-FF]", 1, 2, 16);
+            fail();
+        } catch (NumberFormatException e) {
+            // ok
+        }
+        try {
+            Integer.parseInt("[-FF]", 5, 4, 16);
+            fail();
+        } catch (IndexOutOfBoundsException e) {
+            // ok
+        }
+    }
+
+    @Test
+    public void parsesCornerCases() {
         assertEquals(-2147483648, Integer.parseInt("-2147483648", 10));
         assertEquals(-2147483648, Integer.parseInt("-80000000", 16));
+        try {
+            Integer.parseInt("FFFF", 10);
+            fail();
+        } catch (NumberFormatException e) {
+            // ok
+        }
+        try {
+            Integer.parseInt("2147483648", 10);
+            fail();
+        } catch (NumberFormatException e) {
+            // ok
+        }
+        try {
+            Integer.parseInt("-2147483649", 10);
+            fail();
+        } catch (NumberFormatException e) {
+            // ok
+        }
+        try {
+            Integer.parseInt("80000000", 16);
+            fail();
+        } catch (NumberFormatException e) {
+            // ok
+        }
+        try {
+            Integer.parseInt("-80000001", 16);
+            fail();
+        } catch (NumberFormatException e) {
+            // ok
+        }
+        try {
+            Integer.parseInt("99999999999", 10);
+            fail();
+        } catch (NumberFormatException e) {
+            // ok
+        }
     }
 
     @Test(expected = NumberFormatException.class)
@@ -72,10 +147,47 @@ public class IntegerTest {
         assertEquals(Integer.valueOf(65535), Integer.decode("+0xFFFF"));
         assertEquals(Integer.valueOf(-255), Integer.decode("-0xFF"));
         assertEquals(Integer.valueOf(2748), Integer.decode("+#ABC"));
+        try {
+            Integer.decode(null); // undocumented NPE
+            fail();
+        } catch (NullPointerException e) {
+            // ok
+        }
+        try {
+            Integer.decode("2147483648");
+            fail();
+        } catch (NumberFormatException e) {
+            // ok
+        }
+        try {
+            Integer.decode("-2147483649");
+            fail();
+        } catch (NumberFormatException e) {
+            // ok
+        }
+        try {
+            Integer.decode("0x80000000");
+            fail();
+        } catch (NumberFormatException e) {
+            // ok
+        }
+        try {
+            Integer.decode("-0x80000001");
+            fail();
+        } catch (NumberFormatException e) {
+            // ok
+        }
+        try {
+            Integer.decode("99999999999");
+            fail();
+        } catch (NumberFormatException e) {
+            // ok
+        }
     }
 
     @Test
     public void numberOfLeadingZerosComputed() {
+        assertEquals(0, Integer.numberOfLeadingZeros(-1));
         assertEquals(1, Integer.numberOfLeadingZeros(0x40000000));
         assertEquals(1, Integer.numberOfLeadingZeros(0x40000123));
         assertEquals(1, Integer.numberOfLeadingZeros(0x7FFFFFFF));
@@ -100,6 +212,21 @@ public class IntegerTest {
         assertEquals(0,  Integer.numberOfTrailingZeros(0x12300003));
         assertEquals(0,  Integer.numberOfTrailingZeros(0xFFFFFFFF));
         assertEquals(32, Integer.numberOfTrailingZeros(0));
+    }
+
+    @Test
+    public void highestOneBit() {
+        assertEquals(1 << 31, Integer.highestOneBit(-1));
+        assertEquals(1 << 31, Integer.highestOneBit(Integer.MIN_VALUE));
+        assertEquals(0, Integer.highestOneBit(0));
+        assertEquals(16, Integer.highestOneBit(31));
+    }
+
+    @Test
+    public void lowestOneBit() {
+        assertEquals(0, Integer.lowestOneBit(0));
+        assertEquals(2, Integer.lowestOneBit(50));
+        assertEquals(1, Integer.lowestOneBit(-1));
     }
 
     @Test
@@ -139,7 +266,6 @@ public class IntegerTest {
         assertTrue(Integer.compare(Integer.MIN_VALUE, Integer.MAX_VALUE) < 0);
     }
 
-
     @Test
     public void getFromSystemProperty() {
         System.setProperty("test.foo", "23");
@@ -159,5 +285,38 @@ public class IntegerTest {
         assertEquals("11", Integer.toHexString(17));
         assertEquals("ff", Integer.toHexString(255));
         assertEquals("ffffffff", Integer.toHexString(-1));
+    }
+
+    @Test
+    public void toStringRadix16() {
+        assertEquals("17", Integer.toString(23, 16));
+        assertEquals("1e240", Integer.toString(123456, 16));
+        assertEquals("-17", Integer.toString(-23, 16));
+        assertEquals("7fffffff", Integer.toString(Integer.MAX_VALUE, 16));
+        assertEquals("-80000000", Integer.toString(Integer.MIN_VALUE, 16));
+    }
+
+    @Test
+    public void toStringRadix2() {
+        assertEquals("10111", Integer.toString(23, 2));
+        assertEquals("11110001001000000", Integer.toString(123456, 2));
+        assertEquals("-10111", Integer.toString(-23, 2));
+        assertEquals("1111111111111111111111111111111", Integer.toString(Integer.MAX_VALUE, 2));
+        assertEquals("-10000000000000000000000000000000", Integer.toString(Integer.MIN_VALUE, 2));
+    }
+
+    @Test
+    public void toUnsignedString() {
+        assertEquals("0", Integer.toUnsignedString(0));
+        assertEquals("1", Integer.toUnsignedString(1));
+        assertEquals("23", Integer.toUnsignedString(23, 10));
+        assertEquals("17", Integer.toUnsignedString(23, 16));
+        assertEquals("4294967295", Integer.toUnsignedString(-1));
+        assertEquals("fffffffe", Integer.toUnsignedString(-2, 16));
+    }
+
+    @Test
+    public void unsignedRightShift() {
+        assertEquals(Integer.MIN_VALUE, Integer.MIN_VALUE >>> Integer.parseInt("0"));
     }
 }

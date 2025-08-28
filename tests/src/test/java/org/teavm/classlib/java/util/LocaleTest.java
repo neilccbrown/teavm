@@ -20,12 +20,14 @@ import static org.junit.Assert.assertNotEquals;
 import java.util.Locale;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.teavm.junit.EachTestCompiledSeparately;
 import org.teavm.junit.TeaVMProperties;
 import org.teavm.junit.TeaVMProperty;
 import org.teavm.junit.TeaVMTestRunner;
 
 @RunWith(TeaVMTestRunner.class)
 @TeaVMProperties(@TeaVMProperty(key = "java.util.Locale.available", value = "en, en_US, en_GB, ru, ru_RU"))
+@EachTestCompiledSeparately
 public class LocaleTest {
     @Test
     public void availableLocalesFound() {
@@ -58,5 +60,16 @@ public class LocaleTest {
         //assertEquals("Соединенное Королевство", gbEnglish.getDisplayCountry(russian));
         assertEquals("Соединенные Штаты", usEnglish.getDisplayCountry(russian));
         assertEquals("Россия", russian.getDisplayCountry(russian));
+    }
+
+    @Test
+    public void testLanguageTag() {
+        assertEquals("fr-CA", Locale.CANADA_FRENCH.toLanguageTag());
+        assertEquals("zh", Locale.CHINESE.toLanguageTag());
+        assertEquals("zh-TW", Locale.TRADITIONAL_CHINESE.toLanguageTag());
+        assertEquals("zh-CN", Locale.SIMPLIFIED_CHINESE.toLanguageTag());
+        assertEquals("en-GB", Locale.UK.toLanguageTag());
+        assertEquals("en-US", Locale.US.toLanguageTag());
+        assertEquals("und", Locale.ROOT.toLanguageTag());
     }
 }

@@ -20,6 +20,8 @@ import org.teavm.classlib.java.lang.TIllegalArgumentException;
 import org.teavm.classlib.java.lang.TMath;
 import org.teavm.classlib.java.lang.TStringBuilder;
 import org.teavm.classlib.java.util.TArrays;
+import org.teavm.classlib.java.util.stream.TStream;
+import org.teavm.classlib.java.util.stream.impl.TBufferedReaderLinesStream;
 
 public class TBufferedReader extends TReader {
     private TReader innerReader;
@@ -45,7 +47,7 @@ public class TBufferedReader extends TReader {
     public int read() throws IOException {
         requireOpened();
         if (index >= count) {
-            if (!fillBuffer(0)) {
+            if (!fillBuffer(0, 1)) {
                 return -1;
             }
         }
@@ -68,11 +70,11 @@ public class TBufferedReader extends TReader {
         int charsRead = 0;
         while (charsRead < len) {
             int n = TMath.min(count - index, len - charsRead);
-            for (int i = 0; i < n; ++i) {
-                cbuf[off++] = buffer[index++];
-            }
+            System.arraycopy(buffer, index, cbuf, off, n);
+            off += n;
+            index += n;
             charsRead += n;
-            if (!fillBuffer(0)) {
+            if (charsRead > 0 && !innerReader.ready() || !fillBuffer(0, len - charsRead)) {
                 break;
             }
         }
@@ -87,7 +89,10 @@ public class TBufferedReader extends TReader {
         TStringBuilder line = new TStringBuilder();
         while (true) {
             if (index >= count) {
-                if (!fillBuffer(0)) {
+                if (!fillBuffer(0, count - index)) {
+                    if (line.isEmpty()) {
+                        return null;
+                    }
                     break;
                 }
             }
@@ -96,7 +101,7 @@ public class TBufferedReader extends TReader {
                 break;
             } else if (ch == '\r') {
                 if (index >= count) {
-                    if (!fillBuffer(0)) {
+                    if (!fillBuffer(0, count - index)) {
                         break;
                     }
                 }
@@ -111,6 +116,10 @@ public class TBufferedReader extends TReader {
         return line.toString();
     }
 
+    public TStream<String> lines() {
+        return new TBufferedReaderLinesStream(this);
+    }
+
     @Override
     public long skip(long n) throws IOException {
         requireOpened();
@@ -121,7 +130,7 @@ public class TBufferedReader extends TReader {
             n -= count - index;
             long skipped = innerReader.skip(n);
             if (skipped == n) {
-                fillBuffer(0);
+                fillBuffer(0, (int) n);
             } else {
                 eof = true;
             }
@@ -143,7 +152,7 @@ public class TBufferedReader extends TReader {
             for (int i = index; i < count; ++i) {
                 buffer[i - index] = buffer[i];
             }
-            fillBuffer(count - index);
+            fillBuffer(count - index, count - index);
         }
         mark = index;
     }
@@ -156,25 +165,29 @@ public class TBufferedReader extends TReader {
         index = mark;
     }
 
-    private boolean fillBuffer(int offset) throws IOException {
+    private boolean fillBuffer(int offset, int readLimit) throws IOException {
         if (eof) {
             return false;
         }
-        while (offset < buffer.length) {
+        readLimit = Math.min(readLimit, buffer.length - index);
+        var totalRead = 0;
+        while (true) {
             int charsRead = innerReader.read(buffer, offset, buffer.length - offset);
             if (charsRead == -1) {
                 eof = true;
                 break;
-            } else if (charsRead == 0) {
-                break;
             } else {
                 offset += charsRead;
+                totalRead += charsRead;
+                if ((offset >= readLimit || !innerReader.ready()) && totalRead > 0) {
+                    break;
+                }
             }
         }
         count = offset;
         index = 0;
         mark = -1;
-        return true;
+        return totalRead > 0;
     }
 
     private void requireOpened() throws IOException {

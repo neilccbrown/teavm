@@ -15,11 +15,8 @@
  */
 package org.teavm.backend.wasm.intrinsics;
 
-import java.util.stream.Collectors;
 import org.teavm.ast.InvocationExpr;
-import org.teavm.backend.wasm.WasmRuntime;
 import org.teavm.backend.wasm.generate.WasmClassGenerator;
-import org.teavm.backend.wasm.model.expression.WasmCall;
 import org.teavm.backend.wasm.model.expression.WasmExpression;
 import org.teavm.backend.wasm.model.expression.WasmInt32Constant;
 import org.teavm.backend.wasm.model.expression.WasmInt32Subtype;
@@ -46,9 +43,6 @@ public class AllocatorIntrinsic implements WasmIntrinsic {
             return false;
         }
         switch (methodReference.getName()) {
-            case "fill":
-            case "fillZero":
-            case "moveMemoryBlock":
             case "isInitialized":
                 return true;
             default:
@@ -59,17 +53,6 @@ public class AllocatorIntrinsic implements WasmIntrinsic {
     @Override
     public WasmExpression apply(InvocationExpr invocation, WasmIntrinsicManager manager) {
         switch (invocation.getMethod().getName()) {
-            case "fill":
-            case "fillZero":
-            case "moveMemoryBlock": {
-                MethodReference delegateMethod = new MethodReference(WasmRuntime.class.getName(),
-                        invocation.getMethod().getDescriptor());
-                WasmCall call = new WasmCall(manager.getNames().forMethod(delegateMethod));
-                call.getArguments().addAll(invocation.getArguments().stream()
-                        .map(manager::generate)
-                        .collect(Collectors.toList()));
-                return call;
-            }
             case "isInitialized": {
                 WasmExpression pointer = manager.generate(invocation.getArguments().get(0));
                 if (pointer instanceof WasmInt32Constant) {

@@ -42,19 +42,28 @@ val generatedCSources = File(buildDir, "generated/teavm-c")
 val executableFile = File(buildDir, "dist/teavm_benchmark")
 
 teavm {
+    all {
+        outOfProcess = true
+        processMemory = 1024
+    }
     js {
-        addedToWebApp.set(true)
-        mainClass.set("org.teavm.samples.benchmark.teavm.BenchmarkStarter")
-        debugInformation.set(true)
+        addedToWebApp = true
+        mainClass = "org.teavm.samples.benchmark.teavm.BenchmarkStarter"
+        debugInformation = true
+    }
+    wasmGC {
+        addedToWebApp = true
+        mainClass = "org.teavm.samples.benchmark.teavm.BenchmarkStarter"
+        debugInformation = true
     }
     wasm {
-        addedToWebApp.set(true)
-        mainClass.set("org.teavm.samples.benchmark.teavm.WasmBenchmarkStarter")
+        addedToWebApp = true
+        mainClass = "org.teavm.samples.benchmark.teavm.WasmBenchmarkStarter"
     }
     c {
-        mainClass.set("org.teavm.samples.benchmark.teavm.Gtk3BenchmarkStarter")
-        relativePathInOutputDir.set("")
-        outputDir.set(generatedCSources)
+        mainClass = "org.teavm.samples.benchmark.teavm.Gtk3BenchmarkStarter"
+        relativePathInOutputDir = ""
+        outputDir = generatedCSources
     }
 }
 

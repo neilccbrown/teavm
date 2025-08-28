@@ -20,6 +20,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.Supplier;
@@ -28,10 +29,14 @@ import org.junit.runner.RunWith;
 import org.teavm.interop.Async;
 import org.teavm.interop.AsyncCallback;
 import org.teavm.jso.JSBody;
+import org.teavm.junit.EachTestCompiledSeparately;
 import org.teavm.junit.SkipJVM;
+import org.teavm.junit.SkipPlatform;
 import org.teavm.junit.TeaVMTestRunner;
+import org.teavm.junit.TestPlatform;
 
 @RunWith(TeaVMTestRunner.class)
+@EachTestCompiledSeparately
 public class VMTest {
     @Test
     public void multiArrayCreated() {
@@ -104,14 +109,34 @@ public class VMTest {
 
     @Test
     public void catchesException() {
+        var wasCaught = false;
         try {
             throw new IllegalArgumentException();
         } catch (IllegalArgumentException e) {
-            // do nothing
+            wasCaught = true;
         }
+        assertTrue(wasCaught);
     }
 
     @Test
+    public void tryCatchInCatch() {
+        var list = new ArrayList<String>();
+        try {
+            list.add("1");
+            throw new RuntimeException();
+        } catch (Throwable t) {
+            try {
+                list.add("2");
+                throw new RuntimeException();
+            } catch (Throwable t2) {
+                list.add("3");
+            }
+        }
+        assertEquals(List.of("1", "2", "3"), list);
+    }
+
+    @Test
+    @SkipPlatform(TestPlatform.WEBASSEMBLY)
     public void setsVariableBeforeTryCatch() {
         int a = 23;
         try {
@@ -251,6 +276,7 @@ public class VMTest {
 
     @Test
     @SkipJVM
+    @SkipPlatform({TestPlatform.C, TestPlatform.WEBASSEMBLY, TestPlatform.WASI, TestPlatform.WEBASSEMBLY_GC})
     public void asyncClinit() {
         assertEquals(0, initCount);
         assertEquals("foo", AsyncClinitClass.foo());
@@ -262,11 +288,13 @@ public class VMTest {
     }
 
     @Test
+    @SkipPlatform({TestPlatform.C, TestPlatform.WEBASSEMBLY, TestPlatform.WASI, TestPlatform.WEBASSEMBLY_GC})
     public void asyncClinitField() {
         assertEquals("ok", AsyncClinitClass.state);
     }
 
     @Test
+    @SkipPlatform({TestPlatform.C, TestPlatform.WEBASSEMBLY, TestPlatform.WASI, TestPlatform.WEBASSEMBLY_GC})
     public void asyncClinitInstance() {
         AsyncClinitClass acl = new AsyncClinitClass();
         assertEquals("ok", AsyncClinitClass.state);
@@ -274,6 +302,7 @@ public class VMTest {
     }
 
     @Test
+    @SkipPlatform({TestPlatform.C, TestPlatform.WEBASSEMBLY, TestPlatform.WASI, TestPlatform.WEBASSEMBLY_GC})
     public void asyncWait() {
         AsyncClinitClass acl = new AsyncClinitClass();
         acl.doWait();
@@ -282,6 +311,7 @@ public class VMTest {
 
     @Test
     @SkipJVM
+    @SkipPlatform({TestPlatform.C, TestPlatform.WEBASSEMBLY, TestPlatform.WASI, TestPlatform.WEBASSEMBLY_GC})
     public void loopAndExceptionPhi() {
         int[] a = createArray();
         int s = 0;
@@ -300,6 +330,7 @@ public class VMTest {
 
     @Test
     @SkipJVM
+    @SkipPlatform({TestPlatform.C, TestPlatform.WEBASSEMBLY, TestPlatform.WASI, TestPlatform.WEBASSEMBLY_GC})
     public void asyncTryCatch() {
         try {
             throwExceptionAsync();
@@ -311,6 +342,7 @@ public class VMTest {
 
     @Test
     @SkipJVM
+    @SkipPlatform({TestPlatform.C, TestPlatform.WEBASSEMBLY, TestPlatform.WASI, TestPlatform.WEBASSEMBLY_GC})
     public void asyncExceptionHandler() {
         try {
             throw new RuntimeException("OK");
@@ -516,6 +548,7 @@ public class VMTest {
     }
 
     @Test
+    @SkipPlatform({TestPlatform.C, TestPlatform.WEBASSEMBLY, TestPlatform.WASI})
     public void indirectDefaultMethod() {
         StringBuilder sb = new StringBuilder();
         for (FirstPath o : new FirstPath[] { new PathJoint(), new FirstPathOptimizationPrevention() }) {
@@ -525,6 +558,7 @@ public class VMTest {
     }
 
     @Test
+    @SkipPlatform({TestPlatform.C, TestPlatform.WEBASSEMBLY, TestPlatform.WASI})
     public void indirectDefaultMethodSubclass() {
         StringBuilder sb = new StringBuilder();
         for (FirstPath o : new FirstPath[] { new PathJointSubclass(), new FirstPathOptimizationPrevention() }) {
@@ -599,6 +633,7 @@ public class VMTest {
     }
 
     @Test
+    @SkipPlatform({TestPlatform.WASI, TestPlatform.WEBASSEMBLY_GC})
     public void arrayMonitor() throws InterruptedException {
         int[] array = { 1, 2, 3 };
         synchronized (array) {
@@ -638,6 +673,56 @@ public class VMTest {
     @Test
     public void virtualCallWithPrivateMethods() {
         assertEquals("ap", callA(new B()));
+    }
+
+    @Test
+    public void virtualTableCase1() {
+        interface I {
+            String f();
+        }
+        interface J extends I {
+            String g();
+        }
+        class A {
+        }
+        class C extends A implements J {
+            @Override
+            public String f() {
+                return "C.f";
+            }
+            @Override
+            public String g() {
+                return "C.g";
+            }
+        }
+        class D implements I {
+            @Override
+            public String f() {
+                return "D.f";
+            }
+        }
+        
+        var list = List.<I>of(new C(), new D());
+        var sb = new StringBuilder();
+        for (var item : list) {
+            sb.append(item.f()).append(";");
+        }
+        
+        assertEquals("C.f;D.f;", sb.toString());
+    }
+
+    @Test
+    public void typeInferenceForArrayMerge() {
+        int[][] a = falseBoolean() ? null : array();
+        assertEquals(23, a[0][0]);
+    }
+
+    private boolean falseBoolean() {
+        return false;
+    }
+
+    private int[][] array() {
+        return new int[][] { { 23 } };
     }
 
     private static String callA(A a) {

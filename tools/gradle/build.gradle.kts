@@ -26,6 +26,7 @@ description = "TeaVM Gradle plugin"
 dependencies {
     implementation(project(":core"))
     implementation(project(":tools:core"))
+    implementation(project(":tools:deobfuscator-wasm-gc"))
 }
 
 pluginBundle {
@@ -35,18 +36,22 @@ pluginBundle {
 }
 
 gradlePlugin {
+    website = "https://teavm.org"
+    vcsUrl = "https://github.com/konsoletyper/teavm"
     plugins {
         create("TeaVMPlugin") {
             id = "org.teavm"
             implementationClass = "org.teavm.gradle.TeaVMPlugin"
             displayName = "TeaVM application plugin"
             description = "Installs TeaVM compilation tasks, configurations and source sets"
+            tags = listOf("teavm", "javascript", "webassembly", "compiler", "aot-compiler")
         }
         create("TeaVMLibraryPlugin") {
             id = "org.teavm.library"
             implementationClass = "org.teavm.gradle.TeaVMLibraryPlugin"
             displayName = "TeaVM library plugin"
             description = "Installs TeaVM DSL for consuming TeaVM libraries and running tests in a browser"
+            tags = listOf("teavm", "javascript", "webassembly", "compiler", "aot-compiler")
         }
     }
 }
@@ -66,6 +71,7 @@ val configPath = project.layout.buildDirectory.dir("generated/sources/config")
 
 val createConfig by tasks.registering {
     outputs.dir(configPath)
+    inputs.property("version", project.version)
     val baseDir = configPath.get().asFile
     val jso = findArtifactCoordinates(":jso:core")
     val jsoApis = findArtifactCoordinates(":jso:apis")
@@ -75,6 +81,7 @@ val createConfig by tasks.registering {
     val jsoImpl = findArtifactCoordinates(":jso:impl")
     val metaprogrammingImpl = findArtifactCoordinates(":metaprogramming:impl")
     val tools = findArtifactCoordinates(":tools:core")
+    val cli = findArtifactCoordinates(":tools:cli")
     val junit = findArtifactCoordinates(":tools:junit")
     doLast {
         val file = File(baseDir, "org/teavm/gradle/config/ArtifactCoordinates.java")
@@ -94,6 +101,7 @@ val createConfig by tasks.registering {
                 public static final String JUNIT = "$junit";
                 
                 public static final String TOOLS = "$tools";
+                public static final String CLI = "$cli";
             
                 private ArtifactCoordinates() {
                 }
@@ -103,6 +111,9 @@ val createConfig by tasks.registering {
 }
 
 tasks.compileJava.configure { dependsOn(createConfig) }
+tasks.sourcesJar {
+    dependsOn(createConfig)
+}
 
 sourceSets.main.configure { java.srcDir(configPath) }
 

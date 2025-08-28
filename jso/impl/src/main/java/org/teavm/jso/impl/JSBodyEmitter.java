@@ -15,14 +15,21 @@
  */
 package org.teavm.jso.impl;
 
-import java.io.IOException;
 import org.teavm.backend.javascript.codegen.SourceWriter;
 import org.teavm.backend.javascript.spi.GeneratorContext;
 import org.teavm.backend.javascript.spi.InjectorContext;
 import org.teavm.model.MethodReference;
 
-interface JSBodyEmitter {
-    void emit(InjectorContext context) throws IOException;
+public interface JSBodyEmitter {
+    MethodReference method();
 
-    void emit(GeneratorContext context, SourceWriter writer, MethodReference methodRef) throws IOException;
+    void emit(InjectorContext context);
+
+    void emit(GeneratorContext context, SourceWriter writer, MethodReference methodRef);
+
+    String[] parameterNames();
+
+    JsBodyImportInfo[] imports();
+
+    boolean isStatic();
 }

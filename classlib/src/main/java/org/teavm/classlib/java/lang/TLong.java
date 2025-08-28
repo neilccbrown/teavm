@@ -16,6 +16,7 @@
 package org.teavm.classlib.java.lang;
 
 import static org.teavm.classlib.impl.IntegerUtil.toUnsignedLogRadixString;
+import java.util.Objects;
 import org.teavm.backend.javascript.spi.GeneratedBy;
 import org.teavm.interop.NoSideEffects;
 
@@ -24,7 +25,8 @@ public class TLong extends TNumber implements TComparable<TLong> {
     public static final long MAX_VALUE = 0x7FFFFFFFFFFFFFFFL;
     public static final Class<Long> TYPE = long.class;
     public static final int SIZE = 64;
-    private long value;
+    public static final int BYTES = SIZE / Byte.SIZE;
+    private final long value;
 
     public TLong(long value) {
         this.value = value;
@@ -39,39 +41,61 @@ public class TLong extends TNumber implements TComparable<TLong> {
     }
 
     public static long parseLong(String s, int radix) throws TNumberFormatException {
+        if (s == null) {
+            throw new TNumberFormatException("String is null");
+        }
+        return parseLongImpl(s, 0, s.length(), radix);
+    }
+
+    public static long parseLong(CharSequence s, int beginIndex, int endIndex, int radix)
+            throws TNumberFormatException {
+        return parseLongImpl(Objects.requireNonNull(s), beginIndex, endIndex, radix);
+    }
+
+    private static long parseLongImpl(CharSequence s, int beginIndex, int endIndex, int radix)
+            throws TNumberFormatException {
         if (radix < TCharacter.MIN_RADIX || radix > TCharacter.MAX_RADIX) {
             throw new TNumberFormatException("Illegal radix: " + radix);
         }
-        if (s == null || s.isEmpty()) {
-            throw new TNumberFormatException("String is null or empty");
+        if (beginIndex == endIndex) {
+            throw new TNumberFormatException("String is empty");
         }
         boolean negative = false;
-        int index = 0;
-        switch (s.charAt(0)) {
+        int index = beginIndex;
+        switch (s.charAt(index)) {
             case '-':
                 negative = true;
-                index = 1;
+                index++;
                 break;
             case '+':
-                index = 1;
+                index++;
                 break;
         }
         long value = 0;
-        while (index < s.length()) {
-            int digit = TCharacter.getNumericValue(s.charAt(index++));
+        long maxValue = 1 + TLong.MAX_VALUE / radix;
+        if (index == endIndex) {
+            throw new TNumberFormatException();
+        }
+        while (index < endIndex) {
+            int digit = decodeDigit(s.charAt(index++));
             if (digit < 0) {
-                throw new TNumberFormatException("String contains invalid digits: " + s);
+                throw new TNumberFormatException("String contains invalid digits: "
+                        + s.subSequence(beginIndex, endIndex));
             }
             if (digit >= radix) {
-                throw new TNumberFormatException("String contains digits out of radix " + radix
-                        + ": " + s);
+                throw new TNumberFormatException("String contains digits out of radix " + radix + ": "
+                        + s.subSequence(beginIndex, endIndex));
+            }
+            if (value > maxValue) {
+                throw new TNumberFormatException("The value is too big for long type");
             }
             value = radix * value + digit;
             if (value < 0) {
-                if (index == s.length() && value == MIN_VALUE && negative) {
+                if (index == endIndex && value == MIN_VALUE && negative) {
                     return MIN_VALUE;
                 }
-                throw new TNumberFormatException("The value is too big for int type: " + s);
+                throw new TNumberFormatException("The value is too big for long type: "
+                        + s.subSequence(beginIndex, endIndex));
             }
         }
         return negative ? -value : value;
@@ -90,8 +114,8 @@ public class TLong extends TNumber implements TComparable<TLong> {
     }
 
     public static TLong decode(TString nm) throws TNumberFormatException {
-        if (nm == null || nm.isEmpty()) {
-            throw new TNumberFormatException("Can't parse empty or null string");
+        if (nm.isEmpty()) {
+            throw new TNumberFormatException("Can't parse empty string");
         }
         int index = 0;
         boolean negaive = false;
@@ -124,10 +148,14 @@ public class TLong extends TNumber implements TComparable<TLong> {
             throw new TNumberFormatException("The string does not represent a number");
         }
         long value = 0;
+        long maxValue = 1 + TLong.MAX_VALUE / radix;
         while (index < nm.length()) {
             int digit = decodeDigit(nm.charAt(index++));
-            if (digit >= radix) {
+            if (digit < 0 || digit >= radix) {
                 throw new TNumberFormatException("The string does not represent a number");
+            }
+            if (value > maxValue) {
+                throw new TNumberFormatException("The value is too big for long type");
             }
             value = value * radix + digit;
             if (value < 0) {
@@ -148,7 +176,7 @@ public class TLong extends TNumber implements TComparable<TLong> {
         } else if (c >= 'A' && c <= 'Z') {
             return c - 'A' + 10;
         } else {
-            return 255;
+            return -1;
         }
     }
     @Override
@@ -173,6 +201,39 @@ public class TLong extends TNumber implements TComparable<TLong> {
 
     public static String toString(long i, int radix) {
         return new TStringBuilder().insert(0, i, radix).toString();
+    }
+
+    public static String toUnsignedString(long value, int radix) {
+        radix = Math.min(TCharacter.MAX_RADIX, Math.max(radix, TCharacter.MIN_RADIX));
+        int sz = 0;
+        var v = value;
+        while (v != 0L) {
+            v = Long.divideUnsigned(v, radix);
+            ++sz;
+        }
+        sz = Math.max(sz, 1);
+        var chars = new char[sz];
+        while (sz > 0) {
+            chars[--sz] = TCharacter.forDigit((int) Long.remainderUnsigned(value, radix), radix);
+            value = Long.divideUnsigned(value, radix);
+        }
+        return (String) (Object) TString.fromArray(chars);
+    }
+
+    public static String toUnsignedString(long value) {
+        int sz = 0;
+        var v = value;
+        while (v != 0L) {
+            v = Long.divideUnsigned(v, 10);
+            ++sz;
+        }
+        sz = Math.max(sz, 1);
+        var chars = new char[sz];
+        while (sz > 0) {
+            chars[--sz] = TCharacter.forDigit((int) Long.remainderUnsigned(value, 10), 10);
+            value = Long.divideUnsigned(value, 10);
+        }
+        return (String) (Object) TString.fromArray(chars);
     }
 
     public static String toHexString(long i) {
@@ -236,10 +297,6 @@ public class TLong extends TNumber implements TComparable<TLong> {
         } catch (NumberFormatException e) {
             return null;
         }
-    }
-
-    public static long highestOneBit(long i) {
-        return 0x8000000000000000L >>> numberOfLeadingZeros(i);
     }
 
     public static int numberOfLeadingZeros(long i) {
@@ -306,9 +363,12 @@ public class TLong extends TNumber implements TComparable<TLong> {
         return SIZE - n - 1;
     }
 
+    public static long highestOneBit(long i) {
+        return i & (0x8000000000000000L >>> numberOfLeadingZeros(i));
+    }
 
     public static long lowestOneBit(long i) {
-        return 1L << numberOfTrailingZeros(i);
+        return -i & i;
     }
 
     public static int bitCount(long i) {
@@ -342,9 +402,9 @@ public class TLong extends TNumber implements TComparable<TLong> {
     }
 
     public static long reverseBytes(long i) {
-        i = ((i & 0xFF00FF00FF00FF00L) >> 8)  | ((i & 0x00FF00FF00FF00FFL) << 8);
-        i = ((i & 0xFFFF0000FFFF0000L) >> 16) | ((i & 0x0000FFFF0000FFFFL) << 16);
-        i = (i >> 32) | (i << 32);
+        i = ((i & 0xFF00FF00FF00FF00L) >>> 8)  | ((i & 0x00FF00FF00FF00FFL) << 8);
+        i = ((i & 0xFFFF0000FFFF0000L) >>> 16) | ((i & 0x0000FFFF0000FFFFL) << 16);
+        i = (i >>> 32) | (i << 32);
         return i;
     }
 
@@ -359,4 +419,8 @@ public class TLong extends TNumber implements TComparable<TLong> {
     @GeneratedBy(LongNativeGenerator.class)
     @NoSideEffects
     public static native long remainderUnsigned(long dividend, long divisor);
+
+    @GeneratedBy(LongNativeGenerator.class)
+    @NoSideEffects
+    public static native int compareUnsigned(long a, long b);
 }

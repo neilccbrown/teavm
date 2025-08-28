@@ -99,11 +99,11 @@ public final class WasmHeap {
             memoryLimit = newMemoryLimit;
         }
         if (storageSize > 0) {
-            WasmRuntime.moveMemoryBlock(storageAddress, newStorageAddress, storageSize);
+            Address.moveMemoryBlock(storageAddress, newStorageAddress, storageSize);
         }
         if (regionsSize > 0) {
-            WasmRuntime.moveMemoryBlock(cardTable, newCardTable, regionsCount);
-            WasmRuntime.moveMemoryBlock(regionsAddress, newRegionsAddress, regionsSize);
+            Address.moveMemoryBlock(cardTable, newCardTable, regionsCount);
+            Address.moveMemoryBlock(regionsAddress, newRegionsAddress, regionsSize);
         }
 
         storageAddress = newStorageAddress;

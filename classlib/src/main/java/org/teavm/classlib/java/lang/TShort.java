@@ -20,8 +20,9 @@ public class TShort extends TNumber implements TComparable<TShort> {
     public static final short MAX_VALUE = 32767;
     public static final Class<Short> TYPE = short.class;
     public static final int SIZE = 16;
-    public static final int BYTES = 2;
-    private short value;
+    public static final int BYTES = SIZE / Byte.SIZE;
+    private static TShort[] shortCache;
+    private final short value;
 
     public TShort(short value) {
         this.value = value;
@@ -56,8 +57,21 @@ public class TShort extends TNumber implements TComparable<TShort> {
         return value;
     }
 
-    public static TShort valueOf(short value) {
-        return new TShort(value);
+    public static TShort valueOf(short i) {
+        if (i >= -128 && i <= 127) {
+            ensureShortCache();
+            return shortCache[i + 128];
+        }
+        return new TShort(i);
+    }
+
+    private static void ensureShortCache() {
+        if (shortCache == null) {
+            shortCache = new TShort[256];
+            for (int j = 0; j < shortCache.length; ++j) {
+                shortCache[j] = new TShort((short) (j - 128));
+            }
+        }
     }
 
     public static String toString(short value) {
@@ -133,6 +147,6 @@ public class TShort extends TNumber implements TComparable<TShort> {
     }
 
     public static short reverseBytes(short i) {
-        return (short) ((i << 8) | (i >>> 8));
+        return (short) ((i << 8) | ((i & 0xFF00) >> 8));
     }
 }

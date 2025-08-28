@@ -20,6 +20,7 @@ import org.teavm.dependency.BootstrapMethodSubstitutor;
 import org.teavm.dependency.DynamicCallSite;
 import org.teavm.model.BasicBlock;
 import org.teavm.model.MethodHandle;
+import org.teavm.model.PrimitiveType;
 import org.teavm.model.ValueType;
 import org.teavm.model.emit.ConditionEmitter;
 import org.teavm.model.emit.ConditionProducer;
@@ -54,8 +55,8 @@ public class ObjectMethodsSubstitutor implements BootstrapMethodSubstitutor {
             pe.constant(1).propagateTo(result);
             pe.jump(joint);
         });
-        ConditionProducer classCondition = () -> thisVar.isNull()
-                .or(() -> thatVar.invokeVirtual("getClass", Class.class).isNotSame(pe.constant(type)));
+        ConditionProducer classCondition = () -> thatVar.isNull()
+                .or(() -> thatVar.invokeSpecial("getClass", Class.class).isNotSame(pe.constant(type)));
         pe.when(classCondition).thenDo(() -> {
             pe.constant(0).propagateTo(result);
             pe.jump(joint);
@@ -96,12 +97,11 @@ public class ObjectMethodsSubstitutor implements BootstrapMethodSubstitutor {
                 case SHORT:
                 case CHARACTER:
                 case INTEGER:
-                case LONG:
                     return a.isEqualTo(b);
+                case LONG:
                 case FLOAT:
-                    return pe.invoke(Float.class, "compare", int.class, a, b).isEqualTo(pe.constant(0));
                 case DOUBLE:
-                    return pe.invoke(Double.class, "compare", int.class, a, b).isEqualTo(pe.constant(0));
+                    return a.compareTo(b).isEqualTo(pe.constant(0));
             }
         }
         return pe.invoke(Objects.class, "equals", boolean.class, a.cast(Object.class), b.cast(Object.class)).isTrue();
@@ -156,7 +156,13 @@ public class ObjectMethodsSubstitutor implements BootstrapMethodSubstitutor {
     private ValueEmitter substituteToString(DynamicCallSite callSite, ProgramEmitter pe) {
         ValueEmitter thisVar = callSite.getArguments().get(0);
         String names = callSite.getBootstrapArguments().get(1).getString();
-        ValueEmitter resultVar = pe.construct(StringBuilder.class, pe.constant("["));
+        String className = ((ValueType.Object) thisVar.getType()).getClassName();
+        String simpleName = callSite.getAgent().getClassSource().get(className).getSimpleName();
+        if (simpleName == null) {
+            int idx = className.lastIndexOf('.');
+            simpleName = idx >= 0 ? className.substring(idx + 1) : className;
+        }
+        ValueEmitter resultVar = pe.construct(StringBuilder.class, pe.constant(simpleName + "["));
 
         int argIndex = 2;
         int index = 0;
@@ -171,7 +177,16 @@ public class ObjectMethodsSubstitutor implements BootstrapMethodSubstitutor {
             String fieldTitle = (index == 0 ? "" : ", ") + fieldName + "=";
             resultVar = resultVar.invokeVirtual("append", StringBuilder.class, pe.constant(fieldTitle));
             ValueEmitter thisField = InvokeDynamicUtil.invoke(pe, getter, thisVar);
-            if (!(getter.getValueType() instanceof ValueType.Primitive)) {
+            if (getter.getValueType() instanceof ValueType.Primitive) {
+                PrimitiveType primitive = ((ValueType.Primitive) getter.getValueType()).getKind();
+                switch (primitive) {
+                    case BYTE:
+                    case SHORT:
+                        thisField = thisField.cast(int.class);
+                        break;
+                    default:
+                }
+            } else {
                 thisField = thisField.cast(Object.class);
             }
             resultVar = resultVar.invokeVirtual("append", StringBuilder.class, thisField);

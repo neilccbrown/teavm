@@ -17,6 +17,7 @@
 plugins {
     `java-library`
     shadowApply
+    `teavm-publish`
 }
 
 description = "Command line tools"
@@ -26,6 +27,7 @@ dependencies {
     implementation(project(":tools:devserver"))
     implementation(project(":tools:c-incremental"))
     implementation(libs.commons.cli)
+    implementation(libs.jetty.server)
 
     runtimeOnly(project(":classlib"))
     runtimeOnly(project(":metaprogramming:impl"))
@@ -43,5 +45,18 @@ tasks {
     }
     assemble {
         dependsOn(shadowJar)
+    }
+}
+
+teavmPublish {
+    artifactId = "teavm-cli"
+}
+
+components.configureEach {
+    if (name == "java") {
+        val config = configurations.getByName("shadowRuntimeElements")
+        (this as AdhocComponentWithVariants).withVariantsFromConfiguration(config) {
+            skip()
+        }
     }
 }

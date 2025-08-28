@@ -25,7 +25,6 @@ import org.mozilla.javascript.ast.NodeVisitor;
 import org.mozilla.javascript.ast.PropertyGet;
 import org.mozilla.javascript.ast.StringLiteral;
 import org.teavm.diagnostics.Diagnostics;
-import org.teavm.jso.JSObject;
 import org.teavm.model.CallLocation;
 import org.teavm.model.ClassReaderSource;
 import org.teavm.model.ElementModifier;
@@ -111,16 +110,6 @@ class JavaInvocationProcessor implements NodeVisitor {
                 diagnostics.error(location, "Can't call method {{m0}} of non-JS class", method.getReference());
             }
         }
-        for (int i = 0; i < method.parameterCount(); ++i) {
-            if (!typeHelper.isSupportedType(method.parameterType(i))) {
-                diagnostics.error(location, "Invalid type {{t0}} of parameter " + (i + 1) + " of method {{m1}}",
-                        method.parameterType(i), method.getReference());
-            }
-        }
-        if (method.getResultType() != ValueType.VOID && !typeHelper.isSupportedType(method.getResultType())) {
-            diagnostics.error(location, "Invalid type {{t0}} of return value of method {{m1}}", method.getResultType(),
-                    method.getReference());
-        }
     }
 
     private MethodReference createCallbackMethod(MethodReader method) {
@@ -130,10 +119,9 @@ class JavaInvocationProcessor implements NodeVisitor {
         }
         ValueType[] signature = new ValueType[paramCount + 1];
         for (int i = 0; i < paramCount; ++i) {
-            signature[i] = ValueType.object(JSObject.class.getName());
+            signature[i] = JSMethods.JS_OBJECT;
         }
-        signature[paramCount] = method.getResultType() == ValueType.VOID ? ValueType.VOID
-                : ValueType.object(JSObject.class.getName());
+        signature[paramCount] = method.getResultType() == ValueType.VOID ? ValueType.VOID : JSMethods.JS_OBJECT;
         return new MethodReference(location.getMethod().getClassName(),
                 method.getName() + "$jsocb$_" + idGenerator++, signature);
     }

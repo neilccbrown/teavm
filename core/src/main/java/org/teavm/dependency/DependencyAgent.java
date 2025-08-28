@@ -21,20 +21,30 @@ import org.teavm.callgraph.CallGraph;
 import org.teavm.common.ServiceRepository;
 import org.teavm.diagnostics.Diagnostics;
 import org.teavm.model.*;
+import org.teavm.parsing.resource.ResourceProvider;
 
 public class DependencyAgent implements DependencyInfo, ServiceRepository {
     private DependencyAnalyzer analyzer;
+    private String entryPoint;
 
     DependencyAgent(DependencyAnalyzer analyzer) {
         this.analyzer = analyzer;
+    }
+
+    public String getEntryPoint() {
+        return entryPoint;
+    }
+
+    void setEntryPoint(String entryPoint) {
+        this.entryPoint = entryPoint;
     }
 
     public DependencyNode createNode() {
         return analyzer.createNode();
     }
 
-    public DependencyType getType(String name) {
-        return analyzer.getType(name);
+    public DependencyType getType(ValueType valueType) {
+        return analyzer.getType(valueType);
     }
 
     public String generateClassName() {
@@ -81,6 +91,14 @@ public class DependencyAgent implements DependencyInfo, ServiceRepository {
     @Override
     public ClassReaderSource getClassSource() {
         return analyzer.agentClassSource;
+    }
+
+    public ResourceProvider getResourceProvider() {
+        return analyzer.getResourceProvider();
+    }
+
+    public ClassReaderSource getUnprocessedClassSource() {
+        return analyzer.getUnprocessedClassSource();
     }
 
     @Override
@@ -134,6 +152,11 @@ public class DependencyAgent implements DependencyInfo, ServiceRepository {
 
     public IncrementalDependencyRegistration getIncrementalCache() {
         return analyzer.incrementalCache;
+    }
+
+    @Override
+    public boolean isPrecise() {
+        return analyzer.isPrecise();
     }
 
     void cleanup() {

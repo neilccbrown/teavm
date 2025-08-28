@@ -20,6 +20,8 @@ import org.teavm.dependency.DependencyAgent;
 import org.teavm.dependency.DependencyPlugin;
 import org.teavm.dependency.MethodDependency;
 import org.teavm.model.CallLocation;
+import org.teavm.model.MethodReference;
+import org.teavm.model.ValueType;
 
 public class ClassDependencyListener implements DependencyPlugin {
     @Override
@@ -27,7 +29,11 @@ public class ClassDependencyListener implements DependencyPlugin {
         switch (method.getMethod().getName()) {
             case "initialize":
                 method.getVariable(0).getClassValueNode().addConsumer(type -> {
-                    ClassDependency classDep = agent.linkClass(type.getName());
+                    if (!(type.getValueType() instanceof ValueType.Object)) {
+                        return;
+                    }
+                    var className = ((ValueType.Object) type.getValueType()).getClassName();
+                    ClassDependency classDep = agent.linkClass(className);
                     if (classDep != null) {
                         classDep.initClass(new CallLocation(method.getReference()));
                     }
@@ -36,8 +42,31 @@ public class ClassDependencyListener implements DependencyPlugin {
             case "getSimpleNameCacheLowLevel":
             case "getCanonicalNameCacheLowLevel":
             case "getNameCacheLowLevel":
-                method.getResult().propagate(agent.getType("java.lang.String"));
+                method.getResult().propagate(agent.getType(ValueType.object("java.lang.String")));
                 break;
+            case "getNameImpl":
+                method.getResult().propagate(agent.getType(ValueType.object("java.lang.String")));
+                break;
+            case "last":
+            case "previous":
+                method.getResult().propagate(agent.getType(ValueType.object("java.lang.Class")));
+                break;
+            case "newInstanceImpl": {
+                var location = new CallLocation(method.getReference());
+                method.getVariable(0).getClassValueNode().addConsumer(type -> {
+                    if (!(type.getValueType() instanceof ValueType.Object)) {
+                        return;
+                    }
+                    var className = ((ValueType.Object) type.getValueType()).getClassName();
+                    var ref = new MethodReference(className, "<init>", ValueType.VOID);
+                    var methodDep = agent.linkMethod(ref);
+                    methodDep.addLocation(location);
+                    methodDep.getVariable(0).propagate(type);
+                    methodDep.use();
+                    method.getResult().propagate(type);
+                });
+                break;
+            }
         }
     }
 }

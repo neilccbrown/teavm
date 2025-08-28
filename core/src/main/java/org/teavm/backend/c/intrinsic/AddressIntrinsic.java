@@ -66,6 +66,10 @@ public class AddressIntrinsic implements Intrinsic {
             case "ofData":
 
             case "pin":
+
+            case "fillZero":
+            case "fill":
+            case "moveMemoryBlock":
                 return true;
             default:
                 return false;
@@ -211,11 +215,20 @@ public class AddressIntrinsic implements Intrinsic {
                 context.writer().print("sizeof(void*)");
                 break;
             case "ofData": {
-                ValueType.Array type = (ValueType.Array) invocation.getMethod().parameterType(0);
-                context.writer().print("((char*) ");
-                context.emit(invocation.getArguments().get(0));
-                context.writer().print(" + sizeof(TeaVM_Array) + (intptr_t) TEAVM_ALIGN(NULL, "
-                        + sizeOf(type.getItemType()) + "))");
+                if (invocation.getMethod().parameterType(0) instanceof ValueType.Object) {
+                    context.emitCallSite();
+                    context.writer().print(context.names().forMethod(new MethodReference("java.nio.NativeBufferUtil",
+                            "getAddress", ValueType.object("java.nio.Buffer"),
+                            ValueType.object(Address.class.getName()))));
+                    context.writer().print("(");
+                    context.emit(invocation.getArguments().get(0));
+                    context.writer().print("))");
+                } else {
+                    var type = (ValueType.Array) invocation.getMethod().parameterType(0);
+                    context.writer().print("TEAVM_ARRAY_DATA(");
+                    context.emit(invocation.getArguments().get(0));
+                    context.writer().print(", ").printType(type.getItemType()).print(")");
+                }
                 break;
             }
 
@@ -228,6 +241,36 @@ public class AddressIntrinsic implements Intrinsic {
                 context.writer().print("*/");
                 break;
             }
+
+            case "fillZero":
+                context.includes().addInclude("<string.h>");
+                context.writer().print("memset(");
+                context.emit(invocation.getArguments().get(0));
+                context.writer().print(", 0, ");
+                context.emit(invocation.getArguments().get(1));
+                context.writer().print(")");
+                break;
+            case "fill":
+                context.includes().addInclude("<string.h>");
+                context.writer().print("memset(");
+                context.emit(invocation.getArguments().get(0));
+                context.writer().print(", ");
+                context.emit(invocation.getArguments().get(1));
+                context.writer().print(", ");
+                context.emit(invocation.getArguments().get(2));
+                context.writer().print(")");
+                break;
+            case "moveMemoryBlock":
+                context.includes().addInclude("<string.h>");
+                context.writer().print("memmove(");
+                context.emit(invocation.getArguments().get(1));
+                context.writer().print(", ");
+                context.emit(invocation.getArguments().get(0));
+                context.writer().print(", ");
+                context.emit(invocation.getArguments().get(2));
+                context.writer().print(")");
+                break;
+
         }
     }
 

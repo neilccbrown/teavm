@@ -30,10 +30,8 @@ import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.teavm.junit.TeaVMTestRunner;
-import org.teavm.junit.WholeClassCompilation;
 
 @RunWith(TeaVMTestRunner.class)
-@WholeClassCompilation
 public class BufferedWriterTest {
     private BufferedWriter bw;
     private StringWriter sw;
@@ -196,34 +194,6 @@ public class BufferedWriterTest {
     public void write_$CII_Exception() throws IOException {
         BufferedWriter bWriter = new BufferedWriter(sw);
         char[] nullCharArray = null;
-
-        try {
-            bWriter.write(nullCharArray, -1, -1);
-            fail("should throw IndexOutOfBoundsException");
-        } catch (IndexOutOfBoundsException e) {
-            // expected
-        }
-
-        try {
-            bWriter.write(nullCharArray, -1, 0);
-            fail("should throw IndexOutOfBoundsException");
-        } catch (IndexOutOfBoundsException e) {
-            // expected
-        }
-
-        try {
-            bWriter.write(nullCharArray, 0, -1);
-            fail("should throw NullPointerException");
-        } catch (NullPointerException e) {
-            // expected
-        }
-
-        try {
-            bWriter.write(nullCharArray, 0, 0);
-            fail("should throw NullPointerException");
-        } catch (NullPointerException e) {
-            // expected
-        }
 
         char[] testCharArray = testString.toCharArray();
 

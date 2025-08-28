@@ -15,18 +15,31 @@
  */
 package org.teavm.backend.wasm.intrinsics;
 
+import java.util.List;
 import org.teavm.ast.Expr;
-import org.teavm.backend.lowlevel.generate.NameProvider;
+import org.teavm.backend.wasm.WasmFunctionRepository;
+import org.teavm.backend.wasm.WasmFunctionTypes;
 import org.teavm.backend.wasm.binary.BinaryWriter;
 import org.teavm.backend.wasm.generate.WasmStringPool;
+import org.teavm.backend.wasm.model.WasmFunction;
 import org.teavm.backend.wasm.model.WasmLocal;
+import org.teavm.backend.wasm.model.WasmTag;
 import org.teavm.backend.wasm.model.WasmType;
 import org.teavm.backend.wasm.model.expression.WasmExpression;
 import org.teavm.diagnostics.Diagnostics;
+import org.teavm.model.ClassHierarchy;
 import org.teavm.model.FieldReference;
+import org.teavm.model.MethodReference;
+import org.teavm.model.TextLocation;
+import org.teavm.model.ValueType;
+import org.teavm.parsing.resource.ResourceProvider;
 
 public interface WasmIntrinsicManager {
     WasmExpression generate(Expr expr);
+
+    ResourceProvider getResourceProvider();
+
+    ClassHierarchy getClassHierarchy();
 
     BinaryWriter getBinaryWriter();
 
@@ -34,11 +47,27 @@ public interface WasmIntrinsicManager {
 
     Diagnostics getDiagnostics();
 
-    NameProvider getNames();
+    WasmFunctionRepository getFunctions();
+
+    WasmFunctionTypes getFunctionTypes();
 
     WasmLocal getTemporary(WasmType type);
 
     int getStaticField(FieldReference field);
 
+    int getClassPointer(ValueType type);
+
+    int getFunctionPointer(WasmFunction function);
+
     void releaseTemporary(WasmLocal local);
+
+    boolean isManagedMethodCall(MethodReference method);
+
+    CallSiteIdentifier generateCallSiteId(TextLocation location);
+
+    WasmTag getExceptionTag();
+
+    interface CallSiteIdentifier {
+        void generateRegister(List<WasmExpression> target, TextLocation location);
+    }
 }

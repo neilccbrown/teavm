@@ -15,22 +15,23 @@
  */
 package org.teavm.jso.workers;
 
-import org.teavm.jso.JSObject;
-import org.teavm.jso.JSProperty;
 import org.teavm.jso.dom.events.EventListener;
 import org.teavm.jso.dom.events.EventTarget;
 import org.teavm.jso.dom.events.MessageEvent;
+import org.teavm.jso.dom.events.Registration;
 
 public interface MessagePort extends EventTarget {
-    void postMessage(JSObject message);
+    void postMessage(Object message);
 
     void start();
 
     void close();
 
-    @JSProperty("onmessage")
-    void onMessage(EventListener<MessageEvent> message);
+    default Registration onMessage(EventListener<MessageEvent> message) {
+        return onEvent("message", message);
+    }
 
-    @JSProperty("onmessageerror")
-    void onMessageError(EventListener<MessageEvent> message);
+    default Registration onMessageError(EventListener<MessageEvent> message) {
+        return onEvent("messageerror", message);
+    }
 }

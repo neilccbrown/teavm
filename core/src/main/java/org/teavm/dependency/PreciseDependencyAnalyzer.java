@@ -22,11 +22,16 @@ import org.teavm.model.FieldReference;
 import org.teavm.model.MethodReference;
 import org.teavm.model.ReferenceCache;
 import org.teavm.model.ValueType;
+import org.teavm.parsing.resource.ResourceProvider;
 
 public class PreciseDependencyAnalyzer extends DependencyAnalyzer {
-    public PreciseDependencyAnalyzer(ClassReaderSource classSource, ClassLoader classLoader,
-            ServiceRepository services, Diagnostics diagnostics, ReferenceCache referenceCache) {
-        super(classSource, classLoader, services, diagnostics, referenceCache);
+    private DependencyNode allArrayItemsNode;
+    private static final int DEGREE_THRESHOLD = 2;
+
+    public PreciseDependencyAnalyzer(ClassReaderSource classSource, ResourceProvider resourceProvider,
+            ClassLoader classLoader, ServiceRepository services, Diagnostics diagnostics,
+            ReferenceCache referenceCache, String[] platformTags) {
+        super(classSource, resourceProvider, classLoader, services, diagnostics, referenceCache, platformTags);
     }
 
     @Override
@@ -79,11 +84,22 @@ public class PreciseDependencyAnalyzer extends DependencyAnalyzer {
         ValueType itemTypeFilter = parent.typeFilter instanceof ValueType.Array
                 ? ((ValueType.Array) parent.typeFilter).getItemType()
                 : null;
-        DependencyNode node = createNode(itemTypeFilter);
-        node.degree = parent.degree + 1;
-        node.method = parent.method;
-        if (DependencyAnalyzer.shouldTag) {
-            node.tag = parent.tag + "[";
+        DependencyNode node;
+        if (parent.degree > DEGREE_THRESHOLD) {
+            if (allArrayItemsNode == null) {
+                allArrayItemsNode = createNode(null);
+                if (DependencyAnalyzer.shouldTag) {
+                    allArrayItemsNode.tag = "<any array item>";
+                }
+            }
+            node = allArrayItemsNode;
+        } else {
+            node = createNode(itemTypeFilter);
+            node.degree = parent.degree + 1;
+            node.method = parent.method;
+            if (DependencyAnalyzer.shouldTag) {
+                node.tag = parent.tag + "[";
+            }
         }
         return node;
     }
@@ -102,6 +118,11 @@ public class PreciseDependencyAnalyzer extends DependencyAnalyzer {
 
     @Override
     boolean domainOptimizationEnabled() {
+        return true;
+    }
+
+    @Override
+    public boolean isPrecise() {
         return true;
     }
 }

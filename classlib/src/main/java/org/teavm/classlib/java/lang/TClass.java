@@ -21,17 +21,25 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import org.teavm.backend.javascript.spi.GeneratedBy;
 import org.teavm.backend.javascript.spi.InjectedBy;
+import org.teavm.backend.wasm.generate.gc.classes.WasmGCClassFlags;
 import org.teavm.classlib.PlatformDetector;
+import org.teavm.classlib.impl.reflection.ClassSupport;
+import org.teavm.classlib.impl.reflection.FieldInfoList;
+import org.teavm.classlib.impl.reflection.FieldReader;
+import org.teavm.classlib.impl.reflection.FieldWriter;
 import org.teavm.classlib.impl.reflection.Flags;
 import org.teavm.classlib.impl.reflection.JSClass;
 import org.teavm.classlib.impl.reflection.JSField;
 import org.teavm.classlib.impl.reflection.JSMethodMember;
+import org.teavm.classlib.impl.reflection.MethodCaller;
+import org.teavm.classlib.impl.reflection.MethodInfoList;
 import org.teavm.classlib.java.lang.annotation.TAnnotation;
 import org.teavm.classlib.java.lang.reflect.TAnnotatedElement;
 import org.teavm.classlib.java.lang.reflect.TConstructor;
@@ -48,16 +56,19 @@ import org.teavm.interop.Unmanaged;
 import org.teavm.jso.core.JSArray;
 import org.teavm.platform.Platform;
 import org.teavm.platform.PlatformClass;
+import org.teavm.platform.PlatformObject;
 import org.teavm.platform.PlatformSequence;
 import org.teavm.runtime.RuntimeClass;
 import org.teavm.runtime.RuntimeObject;
 
-public class TClass<T> extends TObject implements TAnnotatedElement, TType {
+public final class TClass<T> extends TObject implements TAnnotatedElement, TType {
+    private static Map<String, TClass<?>> nameMap;
     String name;
     String simpleName;
     String canonicalName;
     private PlatformClass platformClass;
     private TAnnotation[] annotationsCache;
+    private TAnnotation[] declaredAnnotationsCache;
     private Map<TClass<?>, TAnnotation> annotationsByType;
     private TField[] declaredFields;
     private TField[] fields;
@@ -96,6 +107,9 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
 
     @DelegateTo("isInstanceLowLevel")
     public boolean isInstance(TObject obj) {
+        if (PlatformDetector.isWebAssemblyGC()) {
+            return obj != null && isAssignableFrom((TClass<?>) (Object) obj.getClass());
+        }
         return Platform.isInstance(Platform.getPlatformObject(obj), platformClass);
     }
 
@@ -114,9 +128,21 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
         return Address.ofObject(this).<RuntimeClass>toStructure().isSupertypeOf.apply(other);
     }
 
-    @Unmanaged
     public String getName() {
-        if (PlatformDetector.isLowLevel()) {
+        if (PlatformDetector.isWebAssemblyGC()) {
+            var result = getNameImpl();
+            if (result == null) {
+                if (isArray()) {
+                    var componentType = getComponentType();
+                    String componentName = componentType.getName();
+                    if (componentName != null) {
+                        result = componentType.isArray() ? "[" + componentName : "[L" + componentName + ";";
+                        setNameImpl(result);
+                    }
+                }
+            }
+            return result;
+        } else if (PlatformDetector.isLowLevel()) {
             String result = getNameCache(this);
             if (result == null) {
                 result = Platform.getName(platformClass);
@@ -140,18 +166,27 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
         }
     }
 
+    @PluggableDependency(ClassDependencyListener.class)
+    private native String getNameImpl();
+
+    private native void setNameImpl(String name);
+
     public String getSimpleName() {
         String simpleName = getSimpleNameCache(this);
         if (simpleName == null) {
             if (isArray()) {
                 simpleName = getComponentType().getSimpleName() + "[]";
             } else if (getEnclosingClass() != null) {
-                simpleName = Platform.getSimpleName(platformClass);
+                simpleName = PlatformDetector.isWebAssemblyGC()
+                    ? getSimpleNameCache(this)
+                    : Platform.getSimpleName(platformClass);
                 if (simpleName == null) {
                     simpleName = "";
                 }
             } else {
-                String name = Platform.getName(platformClass);
+                var name = PlatformDetector.isWebAssemblyGC()
+                        ? getName()
+                        : Platform.getName(platformClass);
                 int lastDollar = name.lastIndexOf('$');
                 if (lastDollar != -1) {
                     name = name.substring(lastDollar + 1);
@@ -240,7 +275,9 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
     }
 
     private boolean isSynthetic() {
-        if (PlatformDetector.isJavaScript()) {
+        if (PlatformDetector.isWebAssemblyGC()) {
+            return (getWasmGCFlags() & WasmGCClassFlags.SYNTHETIC) != 0;
+        } else if (PlatformDetector.isJavaScript()) {
             return (platformClass.getMetadata().getAccessLevel() & Flags.SYNTHETIC) != 0;
         } else {
             return (RuntimeClass.getClass(Address.ofObject(this).toStructure()).flags & RuntimeClass.SYNTHETIC) != 0;
@@ -269,29 +306,52 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
     }
 
     public boolean isPrimitive() {
+        if (PlatformDetector.isWebAssemblyGC()) {
+            return (getWasmGCFlags() & WasmGCClassFlags.PRIMITIVE) != 0;
+        }
         return Platform.isPrimitive(platformClass);
     }
 
     public boolean isArray() {
+        if (PlatformDetector.isWebAssemblyGC()) {
+            return getComponentType() != null;
+        }
         return Platform.getArrayItem(platformClass) != null;
     }
 
     public boolean isEnum() {
+        if (PlatformDetector.isWebAssemblyGC()) {
+            return (getWasmGCFlags() & WasmGCClassFlags.ENUM) != 0;
+        }
         return Platform.isEnum(platformClass);
     }
 
     public boolean isInterface() {
+        if (PlatformDetector.isWebAssemblyGC()) {
+            return (getWasmGCFlags() & WasmGCClassFlags.INTERFACE) != 0;
+        }
         return (platformClass.getMetadata().getFlags() & Flags.INTERFACE) != 0;
+    }
+    
+    public boolean isAnnotation() {
+        if (PlatformDetector.isWebAssemblyGC()) {
+            return (getWasmGCFlags() & WasmGCClassFlags.ANNOTATION) != 0;
+        }
+        return (platformClass.getMetadata().getFlags() & Flags.ANNOTATION) != 0;
     }
 
     public boolean isLocalClass() {
-        return (platformClass.getMetadata().getFlags() & Flags.SYNTHETIC) != 0
-                && getEnclosingClass() != null;
+        if (PlatformDetector.isWebAssemblyGC()) {
+            return (getWasmGCFlags() & WasmGCClassFlags.SYNTHETIC) != 0 && getEnclosingClass() != null;
+        }
+        return (platformClass.getMetadata().getFlags() & Flags.SYNTHETIC) != 0 && getEnclosingClass() != null;
     }
 
     public boolean isMemberClass() {
         return getDeclaringClass() != null;
     }
+
+    private native int getWasmGCFlags();
 
     @PluggableDependency(ClassGenerator.class)
     public TClass<?> getComponentType() {
@@ -304,18 +364,36 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
         }
         if (declaredFields == null) {
             initReflection();
-            JSClass jsClass = (JSClass) getPlatformClass().getMetadata();
-            JSArray<JSField> jsFields = jsClass.getFields();
-            declaredFields = new TField[jsFields.getLength()];
-            for (int i = 0; i < jsFields.getLength(); ++i) {
-                JSField jsField = jsFields.get(i);
-                declaredFields[i] = new TField(this, jsField.getName(), jsField.getModifiers(),
-                        jsField.getAccessLevel(), TClass.getClass(jsField.getType()), jsField.getGetter(),
-                        jsField.getSetter());
+            if (PlatformDetector.isJavaScript()) {
+                JSClass jsClass = (JSClass) getPlatformClass().getMetadata();
+                JSArray<JSField> jsFields = jsClass.getFields();
+                declaredFields = new TField[jsFields.getLength()];
+                for (int i = 0; i < jsFields.getLength(); ++i) {
+                    JSField jsField = jsFields.get(i);
+                    declaredFields[i] = new TField(this, jsField.getName(), jsField.getModifiers(),
+                            jsField.getAccessLevel(), TClass.getClass(jsField.getType()),
+                            FieldReader.forJs(jsField.getGetter()),
+                            FieldWriter.forJs(jsField.getSetter()));
+                }
+            } else {
+                var infoList = getDeclaredFieldsImpl();
+                if (infoList == null) {
+                    declaredFields = new TField[0];
+                } else {
+                    declaredFields = new TField[infoList.count()];
+                    for (var i = 0; i < declaredFields.length; ++i) {
+                        var fieldInfo = infoList.get(i);
+                        declaredFields[i] = new TField(this, fieldInfo.name(), fieldInfo.modifiers(),
+                                fieldInfo.accessLevel(), (TClass<?>) (Object) fieldInfo.type(),
+                                fieldInfo.reader(), fieldInfo.writer());
+                    }
+                }
             }
         }
         return declaredFields.clone();
     }
+
+    private native FieldInfoList getDeclaredFieldsImpl();
 
     private static void initReflection() {
         if (!reflectionInitialized) {
@@ -355,19 +433,19 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
         return fields.clone();
     }
 
-    public TField getDeclaredField(String name) throws TNoSuchFieldError {
+    public TField getDeclaredField(String name) throws TNoSuchFieldException {
         for (TField field : getDeclaredFields()) {
             if (field.getName().equals(name)) {
                 return field;
             }
         }
-        throw new TNoSuchFieldError();
+        throw new TNoSuchFieldException();
     }
 
-    public TField getField(String name) throws TNoSuchFieldError {
+    public TField getField(String name) throws TNoSuchFieldException {
         TField result = findField(name, new HashSet<>());
         if (result == null) {
-            throw new TNoSuchFieldError();
+            throw new TNoSuchFieldException();
         }
         return result;
     }
@@ -403,7 +481,7 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
 
     @InjectedBy(ClassGenerator.class)
     @PluggableDependency(ClassGenerator.class)
-    public native <T> T newEmptyInstance();
+    public native PlatformObject newEmptyInstance();
 
     @SuppressWarnings({ "raw", "unchecked" })
     public TConstructor<?>[] getDeclaredConstructors() throws TSecurityException {
@@ -413,24 +491,50 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
 
         if (declaredConstructors == null) {
             initReflection();
-            JSClass jsClass = (JSClass) getPlatformClass().getMetadata();
-            JSArray<JSMethodMember> jsMethods = jsClass.getMethods();
-            declaredConstructors = new TConstructor[jsMethods.getLength()];
-            int count = 0;
-            for (int i = 0; i < jsMethods.getLength(); ++i) {
-                JSMethodMember jsMethod = jsMethods.get(i);
-                if (!jsMethod.getName().equals("<init>")) {
-                    continue;
+            if (PlatformDetector.isJavaScript()) {
+                JSClass jsClass = (JSClass) getPlatformClass().getMetadata();
+                JSArray<JSMethodMember> jsMethods = jsClass.getMethods();
+                declaredConstructors = new TConstructor[jsMethods.getLength()];
+                int count = 0;
+                for (int i = 0; i < jsMethods.getLength(); ++i) {
+                    JSMethodMember jsMethod = jsMethods.get(i);
+                    if (!jsMethod.getName().equals("<init>")) {
+                        continue;
+                    }
+                    PlatformSequence<PlatformClass> jsParameterTypes = jsMethod.getParameterTypes();
+                    TClass<?>[] parameterTypes = new TClass<?>[jsParameterTypes.getLength()];
+                    for (int j = 0; j < parameterTypes.length; ++j) {
+                        parameterTypes[j] = getClass(jsParameterTypes.get(j));
+                    }
+                    declaredConstructors[count++] = new TConstructor<>(this, jsMethod.getName(),
+                            jsMethod.getModifiers(), jsMethod.getAccessLevel(), parameterTypes,
+                            MethodCaller.forJs(jsMethod.getCallable()));
                 }
-                PlatformSequence<PlatformClass> jsParameterTypes = jsMethod.getParameterTypes();
-                TClass<?>[] parameterTypes = new TClass<?>[jsParameterTypes.getLength()];
-                for (int j = 0; j < parameterTypes.length; ++j) {
-                    parameterTypes[j] = getClass(jsParameterTypes.get(j));
+                declaredConstructors = Arrays.copyOf(declaredConstructors, count);
+            } else {
+                var methodInfoList = getDeclaredMethodsImpl();
+                if (methodInfoList == null) {
+                    declaredConstructors = new TConstructor[0];
+                } else {
+                    declaredConstructors = new TConstructor[methodInfoList.count()];
+                    int count = 0;
+                    for (int i = 0; i < methodInfoList.count(); ++i) {
+                        var methodInfo = methodInfoList.get(i);
+                        if (!methodInfo.name().equals("<init>")) {
+                            continue;
+                        }
+                        var paramTypeInfoList = methodInfo.parameterTypes();
+                        var parameterTypes = new TClass<?>[paramTypeInfoList.count()];
+                        for (int j = 0; j < parameterTypes.length; ++j) {
+                            parameterTypes[j] = (TClass<?>) (Object) paramTypeInfoList.get(j);
+                        }
+                        declaredConstructors[count++] = new TConstructor<>(this, methodInfo.name(),
+                                methodInfo.modifiers(), methodInfo.accessLevel(), parameterTypes,
+                                methodInfo.caller());
+                    }
+                    declaredConstructors = Arrays.copyOf(declaredConstructors, count);
                 }
-                declaredConstructors[count++] = new TConstructor<T>(this, jsMethod.getName(), jsMethod.getModifiers(),
-                        jsMethod.getAccessLevel(), parameterTypes, jsMethod.getCallable());
             }
-            declaredConstructors = Arrays.copyOf(declaredConstructors, count);
         }
         return declaredConstructors.clone();
     }
@@ -496,28 +600,57 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
         }
         if (declaredMethods == null) {
             initReflection();
-            JSClass jsClass = (JSClass) getPlatformClass().getMetadata();
-            JSArray<JSMethodMember> jsMethods = jsClass.getMethods();
-            declaredMethods = new TMethod[jsMethods.getLength()];
-            int count = 0;
-            for (int i = 0; i < jsMethods.getLength(); ++i) {
-                JSMethodMember jsMethod = jsMethods.get(i);
-                if (jsMethod.getName().equals("<init>") || jsMethod.getName().equals("<clinit>")) {
-                    continue;
+            if (PlatformDetector.isJavaScript()) {
+                JSClass jsClass = (JSClass) getPlatformClass().getMetadata();
+                JSArray<JSMethodMember> jsMethods = jsClass.getMethods();
+                declaredMethods = new TMethod[jsMethods.getLength()];
+                int count = 0;
+                for (int i = 0; i < jsMethods.getLength(); ++i) {
+                    JSMethodMember jsMethod = jsMethods.get(i);
+                    if (jsMethod.getName().equals("<init>") || jsMethod.getName().equals("<clinit>")) {
+                        continue;
+                    }
+                    PlatformSequence<PlatformClass> jsParameterTypes = jsMethod.getParameterTypes();
+                    TClass<?>[] parameterTypes = new TClass<?>[jsParameterTypes.getLength()];
+                    for (int j = 0; j < parameterTypes.length; ++j) {
+                        parameterTypes[j] = getClass(jsParameterTypes.get(j));
+                    }
+                    TClass<?> returnType = getClass(jsMethod.getReturnType());
+                    declaredMethods[count++] = new TMethod(this, jsMethod.getName(), jsMethod.getModifiers(),
+                            jsMethod.getAccessLevel(), returnType, parameterTypes,
+                            MethodCaller.forJs(jsMethod.getCallable()));
                 }
-                PlatformSequence<PlatformClass> jsParameterTypes = jsMethod.getParameterTypes();
-                TClass<?>[] parameterTypes = new TClass<?>[jsParameterTypes.getLength()];
-                for (int j = 0; j < parameterTypes.length; ++j) {
-                    parameterTypes[j] = getClass(jsParameterTypes.get(j));
+                declaredMethods = Arrays.copyOf(declaredMethods, count);
+            } else {
+                var methodInfoList = getDeclaredMethodsImpl();
+                if (methodInfoList == null) {
+                    declaredMethods = new TMethod[0];
+                } else {
+                    declaredMethods = new TMethod[methodInfoList.count()];
+                    int count = 0;
+                    for (int i = 0; i < methodInfoList.count(); ++i) {
+                        var methodInfo = methodInfoList.get(i);
+                        if (methodInfo.name().equals("<init>") || methodInfo.name().equals("<clinit>")) {
+                            continue;
+                        }
+                        var paramTypeInfoList = methodInfo.parameterTypes();
+                        var parameterTypes = new TClass<?>[paramTypeInfoList.count()];
+                        for (int j = 0; j < parameterTypes.length; ++j) {
+                            parameterTypes[j] = (TClass<?>) (Object) paramTypeInfoList.get(j);
+                        }
+                        var returnType = methodInfo.returnType();
+                        declaredMethods[count++] = new TMethod(this, methodInfo.name(), methodInfo.modifiers(),
+                                methodInfo.accessLevel(), (TClass<?>) (Object) returnType, parameterTypes,
+                                methodInfo.caller());
+                    }
+                    declaredMethods = Arrays.copyOf(declaredMethods, count);
                 }
-                TClass<?> returnType = getClass(jsMethod.getReturnType());
-                declaredMethods[count++] = new TMethod(this, jsMethod.getName(), jsMethod.getModifiers(),
-                        jsMethod.getAccessLevel(), returnType, parameterTypes, jsMethod.getCallable());
             }
-            declaredMethods = Arrays.copyOf(declaredMethods, count);
         }
         return declaredMethods.clone();
     }
+
+    private native MethodInfoList getDeclaredMethodsImpl();
 
     public TMethod getDeclaredMethod(String name, TClass<?>... parameterTypes) throws TNoSuchMethodException,
             TSecurityException {
@@ -628,9 +761,15 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
     }
 
     public int getModifiers() {
-        int flags = platformClass.getMetadata().getFlags();
-        int accessLevel = platformClass.getMetadata().getAccessLevel();
-        return Flags.getModifiers(flags, accessLevel);
+        if (PlatformDetector.isJavaScript()) {
+            int flags = platformClass.getMetadata().getFlags();
+            int accessLevel = platformClass.getMetadata().getAccessLevel();
+            return Flags.getModifiers(flags, accessLevel);
+        } else if (PlatformDetector.isWebAssemblyGC()) {
+            return getWasmGCFlags() & WasmGCClassFlags.JVM_FLAGS_MASK;
+        } else {
+            return 0;
+        }
     }
 
     public boolean desiredAssertionStatus() {
@@ -646,29 +785,40 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
     @SuppressWarnings("unchecked")
     @PluggableDependency(ClassGenerator.class)
     public TClass<? super T>[] getInterfaces() {
-        PlatformSequence<PlatformClass> supertypes = platformClass.getMetadata().getSupertypes();
+        if (PlatformDetector.isWebAssemblyGC()) {
+            var result = getInterfacesImpl();
+            return result != null ? result.clone() : (TClass<? super T>[]) new TClass<?>[0];
+        } else {
+            PlatformSequence<PlatformClass> supertypes = platformClass.getMetadata().getSupertypes();
 
-        TClass<? super T>[] filteredSupertypes = (TClass<? super T>[]) new TClass<?>[supertypes.getLength()];
-        int j = 0;
-        for (int i = 0; i < supertypes.getLength(); ++i) {
-            if (supertypes.get(i) != platformClass.getMetadata().getSuperclass()) {
-                filteredSupertypes[j++] = (TClass<? super T>) getClass(supertypes.get(i));
+            TClass<? super T>[] filteredSupertypes = (TClass<? super T>[]) new TClass<?>[supertypes.getLength()];
+            int j = 0;
+            for (int i = 0; i < supertypes.getLength(); ++i) {
+                if (supertypes.get(i) != platformClass.getMetadata().getSuperclass()) {
+                    filteredSupertypes[j++] = (TClass<? super T>) getClass(supertypes.get(i));
+                }
             }
-        }
 
-        if (filteredSupertypes.length > j) {
-            filteredSupertypes = Arrays.copyOf(filteredSupertypes, j);
+            if (filteredSupertypes.length > j) {
+                filteredSupertypes = Arrays.copyOf(filteredSupertypes, j);
+            }
+            return filteredSupertypes;
         }
-        return filteredSupertypes;
     }
+
+    private native TClass<? super T>[] getInterfacesImpl();
 
     @SuppressWarnings("unchecked")
     public T[] getEnumConstants() {
         if (!isEnum()) {
             return null;
         }
-        Platform.initClass(platformClass);
-        return (T[]) Platform.getEnumConstants(platformClass).clone();
+        if (PlatformDetector.isWebAssemblyGC()) {
+            return (T[]) ClassSupport.getEnumConstants((Class<?>) (Object) this);
+        } else {
+            Platform.initClass(platformClass);
+            return (T[]) Platform.getEnumConstants(platformClass).clone();
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -685,12 +835,41 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
 
     @Async
     public static TClass<?> forName(TString name) throws TClassNotFoundException {
-        PlatformClass cls = Platform.lookupClass(name.toString());
-        if (cls == null) {
-            throw new TClassNotFoundException();
+        if (PlatformDetector.isJavaScript()) {
+            PlatformClass cls = Platform.lookupClass(name.toString());
+            if (cls == null) {
+                throw new TClassNotFoundException();
+            }
+            return getClass(cls);
+        } else {
+            if (nameMap == null) {
+                fillNameMap();
+            }
+            var result = nameMap.get((String) (Object) name);
+            if (result == null) {
+                throw new TClassNotFoundException((String) (Object) name);
+            }
+            return result;
         }
-        return getClass(cls);
     }
+
+    private static void fillNameMap() {
+        nameMap = new HashMap<>();
+        var cls = last();
+        while (cls != null) {
+            var name = cls.getNameImpl();
+            if (name != null) {
+                nameMap.put(name, cls);
+            }
+            cls = cls.previous();
+        }
+    }
+
+    @PluggableDependency(ClassDependencyListener.class)
+    private static native TClass<?> last();
+
+    @PluggableDependency(ClassDependencyListener.class)
+    private native TClass<?> previous();
 
     @SuppressWarnings("unused")
     public static TClass<?> forName(TString name, boolean initialize, TClassLoader loader)
@@ -700,17 +879,31 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
 
     @PluggableDependency(ClassDependencyListener.class)
     void initialize() {
-        Platform.initClass(platformClass);
+        if (PlatformDetector.isJavaScript()) {
+            Platform.initClass(platformClass);
+        } else {
+            initializeImpl();
+        }
     }
+
+    private native void initializeImpl();
 
     @SuppressWarnings({ "unchecked", "unused" })
     public T newInstance() throws TInstantiationException, TIllegalAccessException {
-        Object instance = Platform.newInstance(platformClass);
+        Object instance;
+        if (PlatformDetector.isJavaScript()) {
+            instance = Platform.newInstance(platformClass);
+        } else {
+            initReflection();
+            instance = newInstanceImpl();
+        }
         if (instance == null) {
             throw new TInstantiationException();
         }
         return (T) instance;
     }
+
+    private native Object newInstanceImpl();
 
     public TClass<?> getDeclaringClass() {
         PlatformClass result = Platform.getDeclaringClass(getPlatformClass());
@@ -746,15 +939,49 @@ public class TClass<T> extends TObject implements TAnnotatedElement, TType {
     @Override
     public TAnnotation[] getAnnotations() {
         if (annotationsCache == null) {
-            annotationsCache = (TAnnotation[]) Platform.getAnnotations(getPlatformClass());
+            TClass<?> cls = this;
+            var initial = true;
+            var map = new LinkedHashMap<Class<?>, TAnnotation>();
+            while (cls != null) {
+                for (var annot : cls.getDeclaredAnnotations()) {
+                    if (initial || isInherited(annot)) {
+                        map.putIfAbsent(annot.annotationType(), annot);
+                    }
+                }
+                cls = cls.getSuperclass();
+                initial = false;
+            }
+            annotationsCache = map.values().toArray(new TAnnotation[0]);
         }
         return annotationsCache.clone();
     }
 
+    private static boolean isInherited(TAnnotation annot) {
+        if (PlatformDetector.isWebAssemblyGC()) {
+            var flags = ((TClass<?>) (Object) annot.annotationType()).getWasmGCFlags();
+            return (flags & WasmGCClassFlags.INHERITED_ANNOTATIONS) != 0;
+        } else {
+            var platformClass = ((TClass<?>) (Object) annot.annotationType()).platformClass;
+            return (platformClass.getMetadata().getFlags() & Flags.INHERITED_ANNOTATION) != 0;
+        }
+    }
+
     @Override
     public TAnnotation[] getDeclaredAnnotations() {
-        return getAnnotations();
+        if (declaredAnnotationsCache == null) {
+            if (PlatformDetector.isWebAssemblyGC()) {
+                declaredAnnotationsCache = getDeclaredAnnotationsImpl();
+            } else {
+                declaredAnnotationsCache = (TAnnotation[]) Platform.getAnnotations(getPlatformClass());
+            }
+            if (declaredAnnotationsCache == null) {
+                declaredAnnotationsCache = new TAnnotation[0];
+            }
+        }
+        return declaredAnnotationsCache.clone();
     }
+
+    private native TAnnotation[] getDeclaredAnnotationsImpl();
 
     private void ensureAnnotationsByType() {
         if (annotationsByType != null) {

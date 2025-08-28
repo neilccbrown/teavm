@@ -32,6 +32,7 @@ import java.util.function.LongToIntFunction;
 import java.util.function.LongUnaryOperator;
 import java.util.function.ObjLongConsumer;
 import java.util.function.Supplier;
+import org.teavm.classlib.java.util.TLongSummaryStatistics;
 import org.teavm.classlib.java.util.stream.TDoubleStream;
 import org.teavm.classlib.java.util.stream.TIntStream;
 import org.teavm.classlib.java.util.stream.TLongStream;
@@ -88,6 +89,16 @@ public abstract class TSimpleLongStreamImpl implements TLongStream {
     @Override
     public TLongStream limit(long maxSize) {
         return new TLimitingLongStreamImpl(this, (int) maxSize);
+    }
+
+    @Override
+    public TLongStream takeWhile(LongPredicate predicate) {
+        return new TTakeWhileLongStream(this, predicate);
+    }
+
+    @Override
+    public TLongStream dropWhile(LongPredicate predicate) {
+        return new TDropWhileLongStream(this, predicate);
     }
 
     @Override
@@ -210,6 +221,15 @@ public abstract class TSimpleLongStreamImpl implements TLongStream {
     }
 
     @Override
+    public TLongSummaryStatistics summaryStatistics() {
+        TSummaryLongConsumer consumer = new TSummaryLongConsumer();
+        while (next(consumer)) {
+            // go on
+        }
+        return consumer.stat;
+    }
+
+    @Override
     public boolean anyMatch(LongPredicate predicate) {
         TAnyMatchConsumer consumer = new TAnyMatchConsumer(predicate);
         while (!consumer.matched && next(consumer)) {
@@ -292,7 +312,7 @@ public abstract class TSimpleLongStreamImpl implements TLongStream {
     }
 
     @Override
-    public void close() throws Exception {
+    public void close() {
     }
 
     protected int estimateSize() {

@@ -20,9 +20,7 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.teavm.junit.TeaVMTestRunner;
-import org.teavm.junit.WholeClassCompilation;
 
-@WholeClassCompilation
 @RunWith(TeaVMTestRunner.class)
 public class ShortTest {
     @Test
@@ -49,5 +47,11 @@ public class ShortTest {
     @Test
     public void bytes() {
         assertEquals(2, Short.BYTES);
+    }
+
+    @Test
+    public void reverseBytes() {
+        assertEquals((short) 12405, Short.reverseBytes((short) 30000));
+        assertEquals((short) -12150, Short.reverseBytes((short) -30000));
     }
 }

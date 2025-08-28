@@ -40,7 +40,6 @@ import org.mozilla.javascript.ScriptRuntime;
 import org.mozilla.javascript.Scriptable;
 import org.mozilla.javascript.ScriptableObject;
 import org.mozilla.javascript.Undefined;
-import org.mozilla.javascript.typedarrays.NativeUint16Array;
 import org.teavm.ast.AsyncMethodNode;
 import org.teavm.backend.javascript.JavaScriptTarget;
 import org.teavm.cache.AlwaysStaleCacheStatus;
@@ -61,6 +60,7 @@ import org.teavm.model.Program;
 import org.teavm.model.ReferenceCache;
 import org.teavm.model.util.ModelUtils;
 import org.teavm.parsing.ClasspathClassHolderSource;
+import org.teavm.parsing.ClasspathResourceProvider;
 import org.teavm.tooling.TeaVMProblemRenderer;
 import org.teavm.vm.BuildTarget;
 import org.teavm.vm.TeaVM;
@@ -72,7 +72,7 @@ public class IncrementalTest {
     private static final String NEW_FILE = "classes-new.js";
     private static final String REFRESHED_FILE = "classes-refreshed.js";
     private static ClassHolderSource oldClassSource = new ClasspathClassHolderSource(
-            IncrementalTest.class.getClassLoader(), new ReferenceCache());
+            new ClasspathResourceProvider(IncrementalTest.class.getClassLoader()), new ReferenceCache());
     private static Context rhinoContext;
     private static ScriptableObject rhinoRootScope;
     private String[] updatedMethods;
@@ -169,12 +169,7 @@ public class IncrementalTest {
         Function main = (Function) scope.get("main", scope);
         ScriptRuntime.doTopCall(main, rhinoContext, scope, scope,
                 new Object[] { new NativeArray(0), Undefined.instance });
-        NativeUint16Array jsChars = (NativeUint16Array) main.get("result", main);
-        char[] chars = new char[jsChars.getArrayLength()];
-        for (int i = 0; i < chars.length; ++i) {
-            chars[i] = (char) jsChars.get(i).intValue();
-        }
-        return new String(chars);
+        return main.get("result", main).toString();
     }
 
     private static String getSimpleName(String name) {
@@ -201,6 +196,7 @@ public class IncrementalTest {
             TeaVM vm = new TeaVMBuilder(target)
                     .setClassLoader(IncrementalTest.class.getClassLoader())
                     .setClassSource(classSource)
+                    .setResourceProvider(new ClasspathResourceProvider(IncrementalTest.class.getClassLoader()))
                     .setDependencyAnalyzerFactory(FastDependencyAnalyzer::new)
                     .build();
             vm.setCacheStatus(cacheStatus);
@@ -210,7 +206,7 @@ public class IncrementalTest {
             target.setObfuscated(false);
             target.setStrict(true);
             vm.add(new EntryPointTransformer(entryPoint));
-            vm.entryPoint(EntryPoint.class.getName());
+            vm.setEntryPoint(EntryPoint.class.getName());
             vm.installPlugins();
             vm.build(buildTarget, name);
             List<Problem> problems = vm.getProblemProvider().getSevereProblems();

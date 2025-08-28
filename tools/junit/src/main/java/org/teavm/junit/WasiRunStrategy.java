@@ -31,27 +31,12 @@ class WasiRunStrategy implements TestRunStrategy {
     }
 
     @Override
-    public void beforeAll() {
-    }
-
-    @Override
-    public void afterAll() {
-    }
-
-    @Override
-    public void beforeThread() {
-    }
-
-    @Override
-    public void afterThread() {
-    }
-
-    @Override
     public void runTest(TestRun run) throws IOException {
         try {
             List<String> commandLine = new ArrayList<>();
             commandLine.add(this.runCommand);
-            commandLine.add(new File(run.getBaseDirectory(), run.getFileName()).getAbsolutePath());
+            commandLine.add(new File(run.getGroup().getBaseDirectory(), run.getGroup().getFileName())
+                    .getAbsolutePath());
             if (run.getArgument() != null) {
                 commandLine.add(run.getArgument());
             }
@@ -62,12 +47,11 @@ class WasiRunStrategy implements TestRunStrategy {
             }
             if (!stdout.isEmpty() && stdout.get(stdout.size() - 1).equals("SUCCESS")) {
                 writeLines(runtimeOutput);
-                run.getCallback().complete();
             } else {
-                run.getCallback().error(new RuntimeException("Test failed:\n" + mergeLines(runtimeOutput)));
+                throw new RuntimeException("Test failed:\n" + mergeLines(runtimeOutput));
             }
         } catch (InterruptedException e) {
-            run.getCallback().complete();
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -127,5 +111,9 @@ class WasiRunStrategy implements TestRunStrategy {
         boolean result = process.waitFor() == 0;
         output.addAll(lines);
         return result;
+    }
+
+    @Override
+    public void cleanup() {
     }
 }

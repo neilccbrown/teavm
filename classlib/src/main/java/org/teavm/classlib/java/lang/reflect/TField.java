@@ -15,16 +15,13 @@
  */
 package org.teavm.classlib.java.lang.reflect;
 
-import org.teavm.classlib.impl.reflection.Converter;
+import org.teavm.classlib.impl.reflection.FieldReader;
+import org.teavm.classlib.impl.reflection.FieldWriter;
 import org.teavm.classlib.impl.reflection.Flags;
-import org.teavm.classlib.impl.reflection.JSFieldGetter;
-import org.teavm.classlib.impl.reflection.JSFieldSetter;
 import org.teavm.classlib.java.lang.TClass;
 import org.teavm.classlib.java.lang.TIllegalAccessException;
 import org.teavm.classlib.java.lang.TIllegalArgumentException;
 import org.teavm.classlib.java.lang.TObject;
-import org.teavm.platform.Platform;
-import org.teavm.platform.PlatformObject;
 
 public class TField extends TAccessibleObject implements TMember {
     private TClass<?> declaringClass;
@@ -32,11 +29,11 @@ public class TField extends TAccessibleObject implements TMember {
     private int modifiers;
     private int accessLevel;
     private TClass<?> type;
-    private JSFieldGetter getter;
-    private JSFieldSetter setter;
+    private FieldReader getter;
+    private FieldWriter setter;
 
     public TField(TClass<?> declaringClass, String name, int modifiers, int accessLevel, TClass<?> type,
-            JSFieldGetter getter, JSFieldSetter setter) {
+            FieldReader getter, FieldWriter setter) {
         this.declaringClass = declaringClass;
         this.name = name;
         this.modifiers = modifiers;
@@ -86,20 +83,23 @@ public class TField extends TAccessibleObject implements TMember {
     }
 
     public Object get(Object obj) throws TIllegalArgumentException, TIllegalAccessException {
-        if (getter == null) {
-            throw new TIllegalAccessException();
-        }
+        checkGetAccess();
         checkInstance(obj);
-        PlatformObject result = getter.get(Platform.getPlatformObject(obj));
-        return Converter.toJava(result);
+        return getWithoutCheck(obj);
+    }
+
+    public Object getWithoutCheck(Object obj) {
+        return getter.read(obj);
     }
 
     public void set(Object obj, Object value) throws TIllegalArgumentException, TIllegalAccessException {
-        if (setter == null) {
-            throw new TIllegalAccessException();
-        }
+        checkSetAccess();
         checkInstance(obj);
-        setter.set(Platform.getPlatformObject(obj), Converter.fromJava(value));
+        setWithoutCheck(obj, value);
+    }
+
+    public void setWithoutCheck(Object obj, Object value) {
+        setter.write(obj, value);
     }
 
     private void checkInstance(Object obj) {
@@ -110,6 +110,18 @@ public class TField extends TAccessibleObject implements TMember {
             if (!declaringClass.isInstance((TObject) obj)) {
                 throw new TIllegalArgumentException();
             }
+        }
+    }
+
+    public void checkGetAccess() throws TIllegalAccessException {
+        if (getter == null) {
+            throw new TIllegalAccessException();
+        }
+    }
+
+    public void checkSetAccess() throws TIllegalAccessException {
+        if (setter == null) {
+            throw new TIllegalAccessException();
         }
     }
 }

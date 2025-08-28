@@ -26,6 +26,10 @@ public final class TStackTraceElement extends TObject implements TSerializable {
     private int lineNumber;
 
     public TStackTraceElement(String declaringClass, String methodName, String fileName, int lineNumber) {
+        // For some reason Wasm BE does not produce proper string constants.
+        // When these constants go through Objects.requireNonNull, they need to be
+        // cast to String, which fails
+        // TODO: fix and rewrite with Objects.requireNonNull
         if (declaringClass == null || methodName == null) {
             throw new TNullPointerException();
         }
@@ -78,8 +82,7 @@ public final class TStackTraceElement extends TObject implements TSerializable {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        int index = declaringClass.lastIndexOf('.');
-        sb.append(declaringClass.substring(index + 1)).append('.').append(methodName).append('(');
+        sb.append(declaringClass).append('.').append(methodName).append('(');
         if (fileName != null) {
             sb.append(fileName).append(':').append(lineNumber);
         } else {

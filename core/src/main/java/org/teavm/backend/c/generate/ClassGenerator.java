@@ -39,11 +39,13 @@ import org.teavm.cache.EmptyMethodNodeCache;
 import org.teavm.cache.MethodNodeCache;
 import org.teavm.interop.Address;
 import org.teavm.interop.DelegateTo;
+import org.teavm.interop.Import;
 import org.teavm.interop.NoGcRoot;
 import org.teavm.interop.Structure;
 import org.teavm.model.AccessLevel;
 import org.teavm.model.AnnotationHolder;
 import org.teavm.model.BasicBlock;
+import org.teavm.model.CallLocation;
 import org.teavm.model.ClassHolder;
 import org.teavm.model.ClassReader;
 import org.teavm.model.ElementModifier;
@@ -73,6 +75,7 @@ import org.teavm.model.instructions.IsInstanceInstruction;
 import org.teavm.model.instructions.StringConstantInstruction;
 import org.teavm.model.lowlevel.CallSiteDescriptor;
 import org.teavm.model.lowlevel.Characteristics;
+import org.teavm.model.util.ReflectionUtil;
 import org.teavm.runtime.CallSite;
 import org.teavm.runtime.RuntimeArray;
 import org.teavm.runtime.RuntimeClass;
@@ -258,7 +261,7 @@ public class ClassGenerator {
         ClassGenerationContext classContext = new ClassGenerationContext(context, includes, prologueWriter,
                 initWriter, currentClassName);
         codeGenerator = new CodeGenerator(classContext, codeWriter, includes);
-        if (context.isLongjmp() && !context.isIncremental()) {
+        if (!context.isIncremental()) {
             codeGenerator.setCallSites(callSites);
         }
     }
@@ -306,6 +309,11 @@ public class ClassGenerator {
                     if (needsVirtualTable) {
                         addToVirtualTable(method);
                     }
+                } else if (context.getIntrinsic(method.getReference()) == null
+                        && method.getAnnotations().get(Import.class.getName()) == null) {
+                    context.getDiagnostics().error(new CallLocation(method.getReference()),
+                            "Method {{m0}} is native but has no {{c1}} annotation on it",
+                            method.getReference(), Import.class.getName());
                 }
                 continue;
             } else if (method.getProgram() == null) {
@@ -334,18 +342,15 @@ public class ClassGenerator {
             }
 
             List<CallSiteDescriptor> callSites = null;
-            if (context.isLongjmp()) {
-                if (context.isIncremental()) {
-                    callSites = new ArrayList<>();
-                    codeGenerator.setCallSites(callSites);
-                }
+            if (context.isIncremental()) {
+                callSites = new ArrayList<>();
+                codeGenerator.setCallSites(callSites);
             }
 
             codeGenerator.generateMethod(methodNode);
 
             if (context.isIncremental()) {
-                generateCallSites(method.getReference(),
-                        context.isLongjmp() ? callSites : CallSiteDescriptor.extract(method.getProgram()));
+                generateCallSites(method.getReference(), callSites);
                 codeWriter.println("#undef TEAVM_ALLOC_STACK");
             }
         }
@@ -557,7 +562,10 @@ public class ClassGenerator {
         if (cls != null && cls.hasModifier(ElementModifier.ENUM)) {
             enumConstants = writeEnumConstants(cls, name);
         } else {
-            enumConstants = "NULL";
+            enumConstants = getBufferFieldInitializer(cls);
+            if (enumConstants == null) {
+                enumConstants = "NULL";
+            }
         }
 
         headerWriter.print("extern ").print(structName).print(" ").print(name).println(";");
@@ -601,6 +609,20 @@ public class ClassGenerator {
         }
 
         codeWriter.outdent().println(";");
+    }
+
+    private String getBufferFieldInitializer(ClassReader cls) {
+        if (cls == null) {
+            return null;
+        }
+        for (var field : cls.getFields()) {
+            if (ClassGeneratorUtil.isBufferObjectField(field)) {
+                String structName = context.getNames().forClass(cls.getName());
+                String fieldName = context.getNames().forMemberField(field.getReference());
+                return "(void*) offsetof(" + structName + ", " + fieldName + ")";
+            }
+        }
+        return null;
     }
 
     private int getInheritanceDepth(String className) {
@@ -743,11 +765,23 @@ public class ClassGenerator {
                 sizeExpr = "0";
             }
             if (cls != null) {
-                if (cls.hasModifier(ElementModifier.ENUM)) {
-                    flags |= RuntimeClass.ENUM;
+                if (cls.hasModifier(ElementModifier.ABSTRACT)) {
+                    flags |= RuntimeClass.ABSTRACT;
+                }
+                if (cls.hasModifier(ElementModifier.INTERFACE)) {
+                    flags |= RuntimeClass.INTERFACE;
+                }
+                if (cls.hasModifier(ElementModifier.FINAL)) {
+                    flags |= RuntimeClass.FINAL;
+                }
+                if (cls.hasModifier(ElementModifier.ANNOTATION)) {
+                    flags |= RuntimeClass.ANNOTATION;
                 }
                 if (cls.hasModifier(ElementModifier.SYNTHETIC)) {
                     flags |= RuntimeClass.SYNTHETIC;
+                }
+                if (cls.hasModifier(ElementModifier.ENUM)) {
+                    flags |= RuntimeClass.ENUM;
                 }
             }
             List<TagRegistry.Range> ranges = tagRegistry != null ? tagRegistry.getRanges(className) : null;
@@ -786,14 +820,7 @@ public class ClassGenerator {
                 superinterfaces = sb.append(" }").toString();
             }
 
-            switch (className) {
-                case "java.lang.ref.WeakReference":
-                    flags |= RuntimeClass.VM_TYPE_WEAKREFERENCE << RuntimeClass.VM_TYPE_SHIFT;
-                    break;
-                case "java.lang.ref.ReferenceQueue":
-                    flags |= RuntimeClass.VM_TYPE_REFERENCEQUEUE << RuntimeClass.VM_TYPE_SHIFT;
-                    break;
-            }
+            flags = ClassGeneratorUtil.contributeToFlags(cls, flags);
 
             if (cls != null) {
                 simpleName = cls.getSimpleName();
@@ -1273,7 +1300,7 @@ public class ClassGenerator {
         codeWriter.outdent().println("}");
 
         GeneratorContextImpl generatorContext = new GeneratorContextImpl(codeGenerator.getClassContext(),
-                bodyWriter, writerBefore, codeWriter, includes, callSites, context.isLongjmp());
+                bodyWriter, writerBefore, codeWriter, includes, callSites);
         generator.generate(generatorContext, methodRef);
         try {
             generatorContext.flush();
@@ -1286,26 +1313,7 @@ public class ClassGenerator {
 
     public String nameOfType(ValueType type) {
         if (type instanceof ValueType.Primitive) {
-            switch (((ValueType.Primitive) type).getKind()) {
-                case BOOLEAN:
-                    return "boolean";
-                case BYTE:
-                    return "byte";
-                case SHORT:
-                    return "short";
-                case CHARACTER:
-                    return "char";
-                case INTEGER:
-                    return "int";
-                case LONG:
-                    return "long";
-                case FLOAT:
-                    return "float";
-                case DOUBLE:
-                    return "double";
-                default:
-                    throw new AssertionError();
-            }
+            return ReflectionUtil.typeName(((ValueType.Primitive) type).getKind());
         } else if (type instanceof ValueType.Array) {
             if (isArrayOfPrimitives(type)) {
                 return type.toString().replace('/', '.');

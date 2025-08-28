@@ -22,12 +22,28 @@ import java.util.ServiceLoader;
 import org.teavm.backend.c.TeaVMCHost;
 import org.teavm.backend.javascript.TeaVMJavaScriptHost;
 import org.teavm.backend.wasm.TeaVMWasmHost;
+import org.teavm.backend.wasm.gc.TeaVMWasmGCHost;
 import org.teavm.classlib.ReflectionSupplier;
 import org.teavm.classlib.impl.currency.CountriesGenerator;
 import org.teavm.classlib.impl.currency.CurrenciesGenerator;
 import org.teavm.classlib.impl.currency.CurrencyHelper;
 import org.teavm.classlib.impl.lambda.LambdaMetafactorySubstitutor;
 import org.teavm.classlib.impl.record.ObjectMethodsSubstitutor;
+import org.teavm.classlib.impl.reflection.ClassList;
+import org.teavm.classlib.impl.reflection.FieldInfo;
+import org.teavm.classlib.impl.reflection.FieldInfoList;
+import org.teavm.classlib.impl.reflection.FieldReader;
+import org.teavm.classlib.impl.reflection.FieldWriter;
+import org.teavm.classlib.impl.reflection.MethodCaller;
+import org.teavm.classlib.impl.reflection.MethodInfo;
+import org.teavm.classlib.impl.reflection.MethodInfoList;
+import org.teavm.classlib.impl.reflection.ReflectionTransformer;
+import org.teavm.classlib.impl.reflection.WasmGCReflectionIntrinsics;
+import org.teavm.classlib.impl.reflection.WasmGCReflectionTypeMapper;
+import org.teavm.classlib.impl.string.DefaultStringTransformer;
+import org.teavm.classlib.impl.string.JSStringConstructorGenerator;
+import org.teavm.classlib.impl.string.JSStringInjector;
+import org.teavm.classlib.impl.string.JSStringTransformer;
 import org.teavm.classlib.impl.tz.DateTimeZoneProvider;
 import org.teavm.classlib.impl.tz.DateTimeZoneProviderIntrinsic;
 import org.teavm.classlib.impl.tz.DateTimeZoneProviderPatch;
@@ -46,7 +62,8 @@ import org.teavm.classlib.impl.unicode.LikelySubtagsMetadataGenerator;
 import org.teavm.classlib.impl.unicode.NumberFormatMetadataGenerator;
 import org.teavm.classlib.impl.unicode.TimeZoneLocalizationGenerator;
 import org.teavm.classlib.java.lang.CharacterMetadataGenerator;
-import org.teavm.classlib.java.lang.reflect.AnnotationDependencyListener;
+import org.teavm.classlib.java.lang.reflect.JSAnnotationDependencyListener;
+import org.teavm.classlib.java.lang.reflect.WasmGCAnnotationDependencyListener;
 import org.teavm.interop.PlatformMarker;
 import org.teavm.model.MethodReference;
 import org.teavm.model.ValueType;
@@ -66,9 +83,11 @@ public class JCLPlugin implements TeaVMPlugin {
     @Override
     public void install(TeaVMHost host) {
         host.add(new ObfuscationHacks());
+        host.add(new BuffersTransformer());
 
         if (!isBootstrap()) {
-            ServiceLoaderSupport serviceLoaderSupport = new ServiceLoaderSupport(host.getClassLoader());
+            ServiceLoaderSupport serviceLoaderSupport = new ServiceLoaderSupport(host.getClassLoader(),
+                    host.getResourceProvider());
             host.add(serviceLoaderSupport);
             host.registerService(ServiceLoaderInformation.class, serviceLoaderSupport);
             MethodReference loadServicesMethod = new MethodReference(ServiceLoader.class, "loadServices",
@@ -78,21 +97,31 @@ public class JCLPlugin implements TeaVMPlugin {
             if (jsExtension != null) {
                 jsExtension.add(loadServicesMethod, new ServiceLoaderJSSupport());
                 jsExtension.addVirtualMethods(new AnnotationVirtualMethods());
+                host.add(new JSAnnotationDependencyListener());
             }
 
             TeaVMCHost cHost = host.getExtension(TeaVMCHost.class);
             if (cHost != null) {
                 cHost.addGenerator(new ServiceLoaderCSupport());
             }
+
+            var wasmHost = host.getExtension(TeaVMWasmHost.class);
+            if (wasmHost != null) {
+                wasmHost.add(new ServiceLoaderWasmSupport());
+            }
+
+            var wasmGCHost = host.getExtension(TeaVMWasmGCHost.class);
+            if (wasmGCHost != null) {
+                wasmGCHost.addGeneratorFactory(new ServiceLoaderWasmGCSupport());
+                host.add(new WasmGCAnnotationDependencyListener());
+            }
         }
 
+        host.registerService(CLDRReader.class, CLDRReader.getInstance(host.getProperties(),
+                host.getResourceProvider()));
         if (!isBootstrap()) {
-            host.registerService(CLDRReader.class, CLDRReader.getInstance(host.getProperties(), host.getClassLoader()));
-
-            host.add(new ClassForNameTransformer());
+            host.add(new ReflectionTransformer());
         }
-
-        host.add(new AnnotationDependencyListener());
 
         LambdaMetafactorySubstitutor lms = new LambdaMetafactorySubstitutor();
         host.add(new MethodReference("java.lang.invoke.LambdaMetafactory", "metafactory",
@@ -125,6 +154,22 @@ public class JCLPlugin implements TeaVMPlugin {
                         ValueType.object("java.lang.invoke.CallSite")),
                 stringConcatSubstitutor);
 
+        SwitchBootstrapSubstitutor switchBootstrapSubstitutor = new SwitchBootstrapSubstitutor();
+        host.add(new MethodReference("java.lang.runtime.SwitchBootstraps", "typeSwitch",
+                        ValueType.object("java.lang.invoke.MethodHandles$Lookup"),
+                        ValueType.object("java.lang.String"),
+                        ValueType.object("java.lang.invoke.MethodType"),
+                        ValueType.arrayOf(ValueType.object("java.lang.Object")),
+                        ValueType.object("java.lang.invoke.CallSite")),
+                switchBootstrapSubstitutor);
+        host.add(new MethodReference("java.lang.runtime.SwitchBootstraps", "enumSwitch",
+                        ValueType.object("java.lang.invoke.MethodHandles$Lookup"),
+                        ValueType.object("java.lang.String"),
+                        ValueType.object("java.lang.invoke.MethodType"),
+                        ValueType.arrayOf(ValueType.object("java.lang.Object")),
+                        ValueType.object("java.lang.invoke.CallSite")),
+                switchBootstrapSubstitutor);
+
         if (!isBootstrap()) {
             host.add(new ScalaHacks());
             host.add(new KotlinHacks());
@@ -133,16 +178,17 @@ public class JCLPlugin implements TeaVMPlugin {
         host.add(new NumericClassTransformer());
         host.add(new SystemClassTransformer());
 
+        host.add(new PlatformMarkerSupport(host.getPlatformTags()));
+
         if (!isBootstrap()) {
             List<ReflectionSupplier> reflectionSuppliers = new ArrayList<>();
             for (ReflectionSupplier supplier : ServiceLoader.load(ReflectionSupplier.class, host.getClassLoader())) {
                 reflectionSuppliers.add(supplier);
             }
             ReflectionDependencyListener reflection = new ReflectionDependencyListener(reflectionSuppliers);
+            host.addVirtualMethods(reflection::isVirtual);
             host.registerService(ReflectionDependencyListener.class, reflection);
             host.add(reflection);
-
-            host.add(new PlatformMarkerSupport(host.getPlatformTags()));
 
             TeaVMCHost cHost = host.getExtension(TeaVMCHost.class);
             if (cHost != null) {
@@ -153,17 +199,34 @@ public class JCLPlugin implements TeaVMPlugin {
             if (wasmHost != null) {
                 wasmHost.add(context -> new DateTimeZoneProviderIntrinsic(context.getProperties()));
             }
+
+            var wasmGcHost = host.getExtension(TeaVMWasmGCHost.class);
+            if (wasmGcHost != null) {
+                registerWasmGCReflection(wasmGcHost, reflection);
+            }
         }
 
-        TeaVMPluginUtil.handleNatives(host, Class.class);
-        TeaVMPluginUtil.handleNatives(host, ClassLoader.class);
-        TeaVMPluginUtil.handleNatives(host, System.class);
-        TeaVMPluginUtil.handleNatives(host, Array.class);
-        TeaVMPluginUtil.handleNatives(host, Math.class);
+        if (!isBootstrap()) {
+            TeaVMPluginUtil.handleNatives(host, Class.class);
+            TeaVMPluginUtil.handleNatives(host, ClassLoader.class);
+            TeaVMPluginUtil.handleNatives(host, System.class);
+            TeaVMPluginUtil.handleNatives(host, Array.class);
+            TeaVMPluginUtil.handleNatives(host, Math.class);
+        }
 
         installMetadata(host.getService(MetadataRegistration.class));
         host.add(new DeclaringClassDependencyListener());
         applyTimeZoneDetection(host);
+
+        var js = host.getExtension(TeaVMJavaScriptHost.class);
+        if (js != null) {
+            host.add(new JSStringTransformer());
+            js.addInjectorProvider(new JSStringInjector());
+            js.add(new MethodReference(String.class, "<init>", Object.class, void.class),
+                    new JSStringConstructorGenerator());
+        } else {
+            host.add(new DefaultStringTransformer());
+        }
     }
 
     private void applyTimeZoneDetection(TeaVMHost host) {
@@ -241,6 +304,51 @@ public class JCLPlugin implements TeaVMPlugin {
                 new CharacterMetadataGenerator());
         reg.register(new MethodReference(Character.class, "acquireLowerCaseMapping", StringResource.class),
                 new CharacterMetadataGenerator());
+    }
+
+    private void registerWasmGCReflection(TeaVMWasmGCHost wasmGCHost,
+            ReflectionDependencyListener reflectionDependencyListener) {
+        wasmGCHost.addCustomTypeMapperFactory(context -> new WasmGCReflectionTypeMapper(
+                context.classInfoProvider(), context.functionTypes()));
+        wasmGCHost.addMethodsOnCallSites(reflectionDependencyListener::getVirtualCallSites);
+
+        var intrinsics = new WasmGCReflectionIntrinsics(reflectionDependencyListener);
+
+        wasmGCHost.addIntrinsic(new MethodReference(FieldInfo.class, "name", String.class), intrinsics);
+        wasmGCHost.addIntrinsic(new MethodReference(FieldInfo.class, "modifiers", int.class), intrinsics);
+        wasmGCHost.addIntrinsic(new MethodReference(FieldInfo.class, "accessLevel", int.class), intrinsics);
+        wasmGCHost.addIntrinsic(new MethodReference(FieldInfo.class, "type", Class.class), intrinsics);
+        wasmGCHost.addIntrinsic(new MethodReference(FieldInfo.class, "reader", FieldReader.class), intrinsics);
+        wasmGCHost.addIntrinsic(new MethodReference(FieldInfo.class, "writer", FieldWriter.class), intrinsics);
+
+        wasmGCHost.addIntrinsic(new MethodReference(FieldInfoList.class, "count", int.class), intrinsics);
+        wasmGCHost.addIntrinsic(new MethodReference(FieldInfoList.class, "get", int.class, FieldInfo.class),
+                intrinsics);
+
+        wasmGCHost.addIntrinsic(new MethodReference(MethodInfo.class, "name", String.class), intrinsics);
+        wasmGCHost.addIntrinsic(new MethodReference(MethodInfo.class, "modifiers", int.class), intrinsics);
+        wasmGCHost.addIntrinsic(new MethodReference(MethodInfo.class, "accessLevel", int.class), intrinsics);
+        wasmGCHost.addIntrinsic(new MethodReference(MethodInfo.class, "returnType", Class.class), intrinsics);
+        wasmGCHost.addIntrinsic(new MethodReference(MethodInfo.class, "parameterTypes", ClassList.class), intrinsics);
+        wasmGCHost.addIntrinsic(new MethodReference(MethodInfo.class, "caller", MethodCaller.class), intrinsics);
+
+        wasmGCHost.addIntrinsic(new MethodReference(MethodInfoList.class, "count", int.class), intrinsics);
+        wasmGCHost.addIntrinsic(new MethodReference(MethodInfoList.class, "get", int.class, MethodInfo.class),
+                intrinsics);
+
+        wasmGCHost.addIntrinsic(new MethodReference(ClassList.class, "count", int.class), intrinsics);
+        wasmGCHost.addIntrinsic(new MethodReference(ClassList.class, "get", int.class, Class.class),
+                intrinsics);
+
+        wasmGCHost.addIntrinsic(new MethodReference(FieldReader.class, "read", Object.class, Object.class),
+                intrinsics);
+        wasmGCHost.addIntrinsic(new MethodReference(FieldWriter.class, "write", Object.class, Object.class,
+                void.class), intrinsics);
+        wasmGCHost.addIntrinsic(new MethodReference(MethodCaller.class, "call", Object.class, Object[].class,
+                Object.class), intrinsics);
+
+        wasmGCHost.addIntrinsic(new MethodReference(Class.class, "createMetadata", void.class), intrinsics);
+        wasmGCHost.addIntrinsic(new MethodReference(Class.class, "newInstanceImpl", Object.class), intrinsics);
     }
 
     @PlatformMarker

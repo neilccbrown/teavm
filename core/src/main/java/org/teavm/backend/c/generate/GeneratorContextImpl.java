@@ -23,6 +23,7 @@ import org.teavm.backend.c.generators.GeneratorContext;
 import org.teavm.backend.lowlevel.generate.NameProvider;
 import org.teavm.dependency.DependencyInfo;
 import org.teavm.diagnostics.Diagnostics;
+import org.teavm.model.ClassHierarchy;
 import org.teavm.model.ClassReaderSource;
 import org.teavm.model.MethodReference;
 import org.teavm.model.lowlevel.CallSiteDescriptor;
@@ -38,11 +39,10 @@ class GeneratorContextImpl implements GeneratorContext {
     private IncludeManager includes;
     private List<FileGeneratorImpl> fileGenerators = new ArrayList<>();
     private List<CallSiteDescriptor> callSites;
-    private boolean longjmp;
 
     public GeneratorContextImpl(ClassGenerationContext classContext, CodeWriter bodyWriter,
             CodeWriter writerBefore, CodeWriter writerAfter, IncludeManager includes,
-            List<CallSiteDescriptor> callSites, boolean longjmp) {
+            List<CallSiteDescriptor> callSites) {
         this.context = classContext.getContext();
         this.classContext = classContext;
         this.bodyWriter = bodyWriter;
@@ -50,7 +50,6 @@ class GeneratorContextImpl implements GeneratorContext {
         this.writerAfter = writerAfter;
         this.includes = includes;
         this.callSites = callSites;
-        this.longjmp = longjmp;
     }
 
     @Override
@@ -66,6 +65,16 @@ class GeneratorContextImpl implements GeneratorContext {
     @Override
     public ClassReaderSource classSource() {
         return context.getClassSource();
+    }
+
+    @Override
+    public ClassReaderSource initialClassSource() {
+        return context.getInitialClassSource();
+    }
+
+    @Override
+    public ClassHierarchy hierarchy() {
+        return context.getHierarchy();
     }
 
     @Override
@@ -140,11 +149,6 @@ class GeneratorContextImpl implements GeneratorContext {
         callSite.getHandlers().addAll(Arrays.asList(exceptionHandlers));
         callSites.add(callSite);
         return callSite;
-    }
-
-    @Override
-    public boolean usesLongjmp() {
-        return longjmp;
     }
 
     void flush() throws IOException {

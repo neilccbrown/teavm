@@ -36,6 +36,23 @@ public final class TTemplateCollections {
             this.list = list;
         }
 
+        @SuppressWarnings("unchecked")
+        public ImmutableArrayList(TCollection<? extends T> collection) {
+            T[] list = (T[]) new Object[collection.size()];
+
+            TIterator<? extends T> iter = collection.iterator();
+            int index = 0;
+            while (iter.hasNext()) {
+                T element = iter.next();
+                if (element == null) {
+                    throw new NullPointerException();
+                }
+                list[index++] = element;
+            }
+
+            this.list = list;
+        }
+
         @Override
         public T get(int index) {
             return list[index];
@@ -193,6 +210,9 @@ public final class TTemplateCollections {
     static class NElementSet<T> extends AbstractImmutableSet<T> {
         private T[] data;
 
+        /**
+         * Throws an exception on duplicate elements.
+         */
         @SafeVarargs
         NElementSet(T... data) {
             T[] table = data.clone();
@@ -230,6 +250,42 @@ public final class TTemplateCollections {
             }
 
             this.data = table;
+        }
+
+        /**
+         * Duplicate elements will be ignored (does NOT throw an exception).
+         */
+        @SuppressWarnings("unchecked")
+        NElementSet(TCollection<T> collection) {
+            T[] temp = (T[]) new Object[collection.size()];
+
+            int index = 0;
+            outerLoop:
+            for (T element : (T[]) collection.toArray()) {
+                if (element == null) {
+                    throw new NullPointerException(String.format("Element at index %s is null", index));
+                }
+
+                int indexTemp = Math.abs(element.hashCode()) % temp.length;
+                while (temp[indexTemp] != null) {
+                    if (temp[indexTemp].equals(element)) {
+                        continue outerLoop;
+                    }
+                    indexTemp = (indexTemp + 1) % temp.length;
+                }
+                temp[indexTemp] = element;
+                index++;
+            }
+
+            T[] result = (T[]) new Object[index];
+            index = 0;
+            for (T element : temp) {
+                if (element != null) {
+                    result[index++] = element;
+                }
+            }
+
+            this.data = result;
         }
 
         @Override
@@ -416,17 +472,31 @@ public final class TTemplateCollections {
         @SuppressWarnings("unchecked")
         @SafeVarargs
         NEtriesMap(Entry<K, V>... data) {
-            Entry<K, V>[] table = new Entry[data.length];
+            this.data = toEntryArray(data);
+        }
+
+        @SuppressWarnings("unchecked")
+        NEtriesMap(TMap<? extends K, ? extends V> map) {
+            this.data = toEntryArray(map.entrySet().toArray(new TMap.Entry[0]));
+        }
+
+        /**
+         * Creates an array where the {@code Entry} elements are positioned in such a way they
+         * are compatible with the contract of {@link java.util.Map}.
+         */
+        @SuppressWarnings("unchecked")
+        private Entry<K, V>[] toEntryArray(Entry<K, V>[] entries) {
+            Entry<K, V>[] table = new Entry[entries.length];
             Arrays.fill(table, null);
 
-            for (Entry<K, V> entry : data) {
+            for (Entry<K, V> entry : entries) {
                 Objects.requireNonNull(entry.getKey());
                 Objects.requireNonNull(entry.getValue());
 
-                int suggestedIndex = Math.abs(entry.getKey().hashCode()) % data.length;
+                int suggestedIndex = Math.abs(entry.getKey().hashCode()) % entries.length;
                 int index = suggestedIndex;
                 boolean found = false;
-                while (index < data.length) {
+                while (index < entries.length) {
                     Entry<K, V> existingEntry = table[index];
                     if (existingEntry == null) {
                         found = true;
@@ -451,7 +521,7 @@ public final class TTemplateCollections {
                 table[index] = new ImmutableEntry<>(entry.getKey(), entry.getValue());
             }
 
-            this.data = table;
+            return table;
         }
 
         @Override
@@ -479,7 +549,7 @@ public final class TTemplateCollections {
 
         @Override
         public boolean containsKey(Object key) {
-            if (key == null) {
+            if (key == null || data.length == 0) {
                 return false;
             }
             int suggestedIndex = Math.abs(key.hashCode()) % data.length;
@@ -729,9 +799,7 @@ public final class TTemplateCollections {
             }
             if (object instanceof TMap.Entry) {
                 TMap.Entry<?, ?> entry = (TMap.Entry<?, ?>) object;
-                return (key == null ? entry.getKey() == null : key.equals(entry.getKey()))
-                        && (value == null ? entry.getValue() == null : value
-                                .equals(entry.getValue()));
+                return TObjects.equals(key, entry.getKey()) && TObjects.equals(value, entry.getValue());
             }
             return false;
         }
@@ -748,8 +816,7 @@ public final class TTemplateCollections {
 
         @Override
         public int hashCode() {
-            return (key == null ? 0 : key.hashCode())
-                    ^ (value == null ? 0 : value.hashCode());
+            return TObjects.hashCode(key) ^ TObjects.hashCode(value);
         }
 
         @Override

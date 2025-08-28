@@ -16,6 +16,7 @@
 package org.teavm.classlib.java.lang.reflect;
 
 import org.teavm.backend.javascript.spi.GeneratedBy;
+import org.teavm.classlib.PlatformDetector;
 import org.teavm.classlib.java.lang.TArrayIndexOutOfBoundsException;
 import org.teavm.classlib.java.lang.TClass;
 import org.teavm.classlib.java.lang.TIllegalArgumentException;
@@ -33,7 +34,7 @@ import org.teavm.runtime.RuntimeObject;
 
 public final class TArray extends TObject {
     @GeneratedBy(ArrayNativeGenerator.class)
-    @PluggableDependency(ArrayNativeGenerator.class)
+    @PluggableDependency(ArrayDependencyPlugin.class)
     @DelegateTo("getLengthLowLevel")
     @NoSideEffects
     public static native int getLength(TObject array) throws TIllegalArgumentException;
@@ -48,7 +49,7 @@ public final class TArray extends TObject {
         return array.size;
     }
 
-    @PluggableDependency(ArrayNativeGenerator.class)
+    @PluggableDependency(ArrayDependencyPlugin.class)
     public static TObject newInstance(Class<?> componentType, int length) throws TNegativeArraySizeException {
         if (componentType == null) {
             throw new TNullPointerException();
@@ -59,8 +60,14 @@ public final class TArray extends TObject {
         if (length < 0) {
             throw new TNegativeArraySizeException();
         }
-        return newInstanceImpl(((TClass<?>) (Object) componentType).getPlatformClass(), length);
+        if (PlatformDetector.isWebAssemblyGC()) {
+            return newInstanceImpl(componentType, length);
+        } else {
+            return newInstanceImpl(((TClass<?>) (Object) componentType).getPlatformClass(), length);
+        }
     }
+
+    private static native TObject newInstanceImpl(Class<?> componentType, int length);
 
     @GeneratedBy(ArrayNativeGenerator.class)
     @DelegateTo("newInstanceLowLevel")
@@ -89,12 +96,12 @@ public final class TArray extends TObject {
     }
 
     @GeneratedBy(ArrayNativeGenerator.class)
-    @PluggableDependency(ArrayNativeGenerator.class)
+    @PluggableDependency(ArrayDependencyPlugin.class)
     @NoSideEffects
     private static native TObject getImpl(TObject array, int index);
 
     @GeneratedBy(ArrayNativeGenerator.class)
-    @PluggableDependency(ArrayNativeGenerator.class)
+    @PluggableDependency(ArrayDependencyPlugin.class)
     @NoSideEffects
     private static native void setImpl(TObject array, int index, TObject value);
 }

@@ -16,6 +16,7 @@
 package org.teavm.classlib.java.lang;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import org.junit.Test;
@@ -24,6 +25,8 @@ import org.teavm.junit.TeaVMTestRunner;
 
 @RunWith(TeaVMTestRunner.class)
 public class FloatTest {
+    private static final float OTHER_NAN = Float.intBitsToFloat(Float.floatToIntBits(Float.NaN) + 1);
+
     @Test
     public void parsed() {
         assertEquals(23, Float.parseFloat("23"), 1E-12F);
@@ -52,6 +55,20 @@ public class FloatTest {
         assertEquals(0, Float.parseFloat("00000.0000"), 1E-12F);
         assertEquals(4499999285F, Float.parseFloat("4499999285"), 100F);
         assertEquals(0.4499999285F, Float.parseFloat("0.4499999285"), 1E-9F);
+        assertEquals(Float.POSITIVE_INFINITY, Float.parseFloat("1e50"), 1E-9F);
+        assertEquals(23, Float.parseFloat("23f"), 0.1f);
+        assertEquals(23, Float.parseFloat("23F"), 0.1f);
+        assertEquals(23, Float.parseFloat("23d"), 0.1f);
+        assertEquals(23, Float.parseFloat("23D"), 0.1f);
+    }
+
+    @Test
+    public void testEquals() {
+        assertNotEquals(Float.valueOf(-0.0f), Float.valueOf(0.0f));
+        assertEquals(Float.valueOf(5.0f), Float.valueOf(5.0f));
+        assertEquals(Float.valueOf(Float.POSITIVE_INFINITY), Float.valueOf(Float.POSITIVE_INFINITY));
+        assertNotEquals(Float.valueOf(Float.NEGATIVE_INFINITY), Float.valueOf(Float.POSITIVE_INFINITY));
+        assertEquals(Float.valueOf(Float.NEGATIVE_INFINITY), Float.valueOf(Float.NEGATIVE_INFINITY));
     }
 
     @Test
@@ -100,12 +117,34 @@ public class FloatTest {
         assertEquals("0x1.0p-2", Float.toHexString(0.25f));
         assertEquals("0x1.0p-126", Float.toHexString((float) Math.pow(2, -126)));
         assertEquals("0x0.001p-126", Float.toHexString(0x0.001p-126f));
+        assertEquals("0x0.0p0", Float.toHexString(0.0F));
+        assertEquals("-0x0.0p0", Float.toHexString(-0.0F));
     }
 
     @Test
     public void compares() {
-        assertTrue(Float.compare(10, 5) > 0);
-        assertTrue(Float.compare(5, 10) < 0);
-        assertTrue(Float.compare(5, 5) == 0);
+        assertEquals(1, Float.compare(10, 5));
+        assertEquals(-1, Float.compare(5, 10));
+        assertEquals(0, Float.compare(5, 5));
+        assertEquals(0, Float.compare(0.0f, 0.0f));
+        assertEquals(0, Float.compare(-0.0f, -0.0f));
+        assertEquals(1, Float.compare(Float.NaN, Float.POSITIVE_INFINITY));
+        assertEquals(-1, Float.compare(Float.POSITIVE_INFINITY, Float.NaN));
+        assertEquals(1, Float.compare(Float.NaN, 0.0f));
+        assertEquals(-1, Float.compare(-0.0f, Float.NaN));
+        assertEquals(1, Float.compare(0.0f, -0.0f));
+        assertEquals(-1, Float.compare(-0.0f, 0.0f));
+    }
+
+    @Test
+    public void testNaN() {
+        assertTrue(Float.isNaN(OTHER_NAN));
+        assertTrue(OTHER_NAN != OTHER_NAN);
+        assertTrue(OTHER_NAN != Double.NaN);
+        assertEquals(Float.valueOf(Float.NaN), Float.valueOf(Float.NaN));
+        assertEquals(Float.valueOf(OTHER_NAN), Float.valueOf(Float.NaN));
+        assertEquals(Float.valueOf(OTHER_NAN), Float.valueOf(OTHER_NAN));
+        assertNotEquals(Float.floatToRawIntBits(OTHER_NAN), Float.floatToRawIntBits(Float.NaN));
+        assertEquals(Float.floatToIntBits(OTHER_NAN), Float.floatToIntBits(Float.NaN));
     }
 }

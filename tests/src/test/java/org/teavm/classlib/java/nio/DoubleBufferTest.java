@@ -17,20 +17,25 @@ package org.teavm.classlib.java.nio;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.sameInstance;
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.fail;
 import java.nio.BufferOverflowException;
 import java.nio.BufferUnderflowException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.DoubleBuffer;
 import java.nio.InvalidMarkException;
 import java.nio.ReadOnlyBufferException;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.teavm.junit.SkipPlatform;
 import org.teavm.junit.TeaVMTestRunner;
-import org.teavm.junit.WholeClassCompilation;
+import org.teavm.junit.TestPlatform;
 
 @RunWith(TeaVMTestRunner.class)
-@WholeClassCompilation
 public class DoubleBufferTest {
     @Test
     public void allocatesSimple() {
@@ -48,6 +53,34 @@ public class DoubleBufferTest {
             // ok
         }
     }
+
+    @Test
+    @SkipPlatform({ TestPlatform.WASI, TestPlatform.WEBASSEMBLY })
+    public void bulkTransferDirect() {
+        var buffer = ByteBuffer.allocateDirect(40).asDoubleBuffer();
+        var doubles = new double[] { 1, 2, 3 };
+        buffer.put(0, doubles);
+        var dobulesCopy = new double[doubles.length];
+        buffer.get(0, dobulesCopy);
+        assertArrayEquals(doubles, dobulesCopy, 0.1);
+    }
+
+    @Test
+    public void bulkTransferRelative() {
+        var arr = new double[5];
+        var buffer = DoubleBuffer.wrap(arr);
+        var src = DoubleBuffer.wrap(new double[] { 1.0, 2.0, 3.0 });
+        buffer.put(src);
+        assertArrayEquals(new double[] { 1.0, 2.0, 3.0, 0.0, 0.0 }, arr, 0.0);
+        assertEquals(3, buffer.position());
+        assertEquals(3, src.position());
+
+        assertThrows(BufferOverflowException.class, () -> buffer.put(
+                DoubleBuffer.wrap(new double[] { 4.0, 5.0, 6.0 })));
+        assertThrows(ReadOnlyBufferException.class, () -> buffer.rewind().asReadOnlyBuffer()
+                .put(DoubleBuffer.wrap(new double[] { 4.0, 5.0, 6.0 })));
+    }
+
 
     @Test(expected = IllegalArgumentException.class)
     public void errorIfAllocatingBufferOfNegativeSize() {
@@ -371,5 +404,228 @@ public class DoubleBufferTest {
         buffer.position(2);
         buffer.reset();
         assertThat(buffer.position(), is(1));
+    }
+
+    @Test
+    public void putEmptyArray() {
+        DoubleBuffer db = DoubleBuffer.allocate(0);
+        db.put(new double[0]);
+        db.get(new double[0]);
+    }
+    @Test
+    public void bulkPut() {
+        var buffer = DoubleBuffer.allocate(100);
+        buffer.put(new double[] { 1, 2, 3 });
+        assertEquals(3, buffer.position());
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(2, buffer.get(1), 0.1f);
+        assertEquals(3, buffer.get(2), 0.1f);
+
+        buffer.put(1, new double[] { 4, 5, 6 });
+        assertEquals(3, buffer.position());
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(4, buffer.get(1), 0.1f);
+        assertEquals(5, buffer.get(2), 0.1f);
+        assertEquals(6, buffer.get(3), 0.1f);
+
+        buffer.put(0, new double[] { 7, 8, 9, 10 }, 1, 2);
+        assertEquals(8, buffer.get(0), 0.1f);
+        assertEquals(9, buffer.get(1), 0.1f);
+        assertEquals(5, buffer.get(2), 0.1f);
+        assertEquals(6, buffer.get(3), 0.1f);
+    }
+
+    @Test
+    public void bulkPutWrapper() {
+        var byteBuffer = ByteBuffer.allocate(100);
+        byteBuffer.order(ByteOrder.BIG_ENDIAN);
+        var buffer = byteBuffer.asDoubleBuffer();
+
+        buffer.put(new double[] { 1, 2, 3 });
+        assertEquals(3, buffer.position());
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(2, buffer.get(1), 0.1f);
+        assertEquals(3, buffer.get(2), 0.1f);
+
+        buffer.put(1, new double[] { 4, 5, 6 });
+        assertEquals(3, buffer.position());
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(4, buffer.get(1), 0.1f);
+        assertEquals(5, buffer.get(2), 0.1f);
+        assertEquals(6, buffer.get(3), 0.1f);
+        assertEquals((byte) 0x3f, byteBuffer.get(0));
+        assertEquals((byte) 0xf0, byteBuffer.get(1));
+        assertEquals(0, byteBuffer.get(7));
+
+        buffer.put(0, new double[] { 7, 8, 9, 10 }, 1, 2);
+        assertEquals(8, buffer.get(0), 0.1f);
+        assertEquals(9, buffer.get(1), 0.1f);
+        assertEquals(5, buffer.get(2), 0.1f);
+        assertEquals(6, buffer.get(3), 0.1f);
+
+        byteBuffer.order(ByteOrder.LITTLE_ENDIAN);
+        buffer = byteBuffer.asDoubleBuffer();
+
+        buffer.put(new double[] { 1, 2, 3 });
+        assertEquals(3, buffer.position());
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(2, buffer.get(1), 0.1f);
+        assertEquals(3, buffer.get(2), 0.1f);
+
+        buffer.put(1, new double[] { 4, 5, 6 });
+        assertEquals(3, buffer.position());
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(4, buffer.get(1), 0.1f);
+        assertEquals(5, buffer.get(2), 0.1f);
+        assertEquals(6, buffer.get(3), 0.1f);
+        assertEquals(0, byteBuffer.get(0));
+        assertEquals((byte) 0xf0, byteBuffer.get(6));
+        assertEquals((byte) 0x3f, byteBuffer.get(7));
+
+        buffer.put(0, new double[] { 7, 8, 9, 10 }, 1, 2);
+        assertEquals(8, buffer.get(0), 0.1f);
+        assertEquals(9, buffer.get(1), 0.1f);
+        assertEquals(5, buffer.get(2), 0.1f);
+        assertEquals(6, buffer.get(3), 0.1f);
+    }
+
+    @Test
+    public void bulkPutBuffer() {
+        var buffer = DoubleBuffer.allocate(100);
+        buffer.put(DoubleBuffer.wrap(new double[] { 1, 2, 3 }));
+
+        assertEquals(3, buffer.position());
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(2, buffer.get(1), 0.1f);
+        assertEquals(3, buffer.get(2), 0.1f);
+
+        buffer.put(1, DoubleBuffer.wrap(new double[] { 4, 5, 6 }), 1, 2);
+        assertEquals(3, buffer.position());
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(5, buffer.get(1), 0.1f);
+        assertEquals(6, buffer.get(2), 0.1f);
+    }
+
+    @Test
+    public void bulkPutBufferWrapper() {
+        var buffer = ByteBuffer.allocate(100).order(ByteOrder.BIG_ENDIAN).asDoubleBuffer();
+        buffer.put(ByteBuffer.wrap(new byte[] {
+                        0x3f, (byte) 0xf0, 0, 0, 0, 0, 0, 0,
+                        0x40, 0x00, 0, 0, 0, 0, 0, 0,
+                        0x40, 0x08, 0, 0, 0, 0, 0, 0
+                })
+                .order(ByteOrder.BIG_ENDIAN)
+                .asDoubleBuffer());
+
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(2, buffer.get(1), 0.1f);
+        assertEquals(3, buffer.get(2), 0.1f);
+
+        buffer = ByteBuffer.allocate(100).order(ByteOrder.LITTLE_ENDIAN).asDoubleBuffer();
+        buffer.put(ByteBuffer.wrap(new byte[] {
+                        0x3f, (byte) 0xf0, 0, 0, 0, 0, 0, 0,
+                        0x40, 0x00, 0, 0, 0, 0, 0, 0,
+                        0x40, 0x08, 0, 0, 0, 0, 0, 0
+                })
+                .order(ByteOrder.BIG_ENDIAN)
+                .asDoubleBuffer());
+
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(2, buffer.get(1), 0.1f);
+        assertEquals(3, buffer.get(2), 0.1f);
+
+        buffer = ByteBuffer.allocate(100).order(ByteOrder.BIG_ENDIAN).asDoubleBuffer();
+        buffer.put(ByteBuffer.wrap(new byte[] {
+                        0, 0, 0, 0, 0, 0, (byte) 0xf0, 0x3f,
+                        0, 0, 0, 0, 0, 0, 0x00, 0x40,
+                        0, 0, 0, 0, 0, 0, 0x08, 0x40,
+                })
+                .order(ByteOrder.LITTLE_ENDIAN)
+                .asDoubleBuffer());
+
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(2, buffer.get(1), 0.1f);
+        assertEquals(3, buffer.get(2), 0.1f);
+
+        buffer = ByteBuffer.allocate(100).order(ByteOrder.LITTLE_ENDIAN).asDoubleBuffer();
+        buffer.put(ByteBuffer.wrap(new byte[] {
+                        0, 0, 0, 0, 0, 0, (byte) 0xf0, 0x3f,
+                        0, 0, 0, 0, 0, 0, 0x00, 0x40,
+                        0, 0, 0, 0, 0, 0, 0x08, 0x40,
+                })
+                .order(ByteOrder.LITTLE_ENDIAN)
+                .asDoubleBuffer());
+
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(2, buffer.get(1), 0.1f);
+        assertEquals(3, buffer.get(2), 0.1f);
+    }
+
+    @Test
+    public void bulkGet() {
+        var buffer = DoubleBuffer.wrap(new double[] { 1, 2, 3, 4, 5, 6 });
+        var arr = new double[3];
+
+        buffer.get(arr);
+        assertArrayEquals(new double[] { 1, 2, 3 }, arr, 0.1f);
+        assertEquals(3, buffer.position());
+
+        buffer.get(1, arr);
+        assertArrayEquals(new double[] { 2, 3, 4 }, arr, 0.1f);
+        assertEquals(3, buffer.position());
+
+        buffer.get(4, arr, 1, 2);
+        assertArrayEquals(new double[] { 2, 5, 6 }, arr, 0.1f);
+        assertEquals(3, buffer.position());
+    }
+
+    @Test
+    public void bulkGetWrapper() {
+        var buffer = ByteBuffer.wrap(new byte[] {
+                        0, 0, 0, 0, 0, 0, (byte) 0xf0, 0x3f,
+                        0, 0, 0, 0, 0, 0, 0x00, 0x40,
+                        0, 0, 0, 0, 0, 0, 0x08, 0x40,
+                        0, 0, 0, 0, 0, 0, 0x10, 0x40,
+                        0, 0, 0, 0, 0, 0, 0x14, 0x40,
+                        0, 0, 0, 0, 0, 0, 0x18, 0x40
+                })
+                .order(ByteOrder.LITTLE_ENDIAN)
+                .asDoubleBuffer();
+        var arr = new double[3];
+
+        buffer.get(arr);
+        assertArrayEquals(new double[] { 1, 2, 3 }, arr, 0.1f);
+        assertEquals(3, buffer.position());
+
+        buffer.get(1, arr);
+        assertArrayEquals(new double[] { 2, 3, 4 }, arr, 0.1f);
+        assertEquals(3, buffer.position());
+
+        buffer.get(4, arr, 1, 2);
+        assertArrayEquals(new double[] { 2, 5, 6 }, arr, 0.1f);
+        assertEquals(3, buffer.position());
+
+        buffer = ByteBuffer.wrap(new byte[] {
+                        0x3f, (byte) 0xf0, 0, 0, 0, 0, 0, 0,
+                        0x40, 0x00, 0, 0, 0, 0, 0, 0,
+                        0x40, 0x08, 0, 0, 0, 0, 0, 0,
+                        0x40, 0x10, 0, 0, 0, 0, 0, 0,
+                        0x40, 0x14, 0, 0, 0, 0, 0, 0,
+                        0x40, 0x18, 0, 0, 0, 0, 0, 0
+                })
+                .order(ByteOrder.BIG_ENDIAN)
+                .asDoubleBuffer();
+
+        buffer.get(arr);
+        assertArrayEquals(new double[] { 1, 2, 3 }, arr, 0.1f);
+        assertEquals(3, buffer.position());
+
+        buffer.get(1, arr);
+        assertArrayEquals(new double[] { 2, 3, 4 }, arr, 0.1f);
+        assertEquals(3, buffer.position());
+
+        buffer.get(4, arr, 1, 2);
+        assertArrayEquals(new double[] { 2, 5, 6 }, arr, 0.1f);
+        assertEquals(3, buffer.position());
     }
 }

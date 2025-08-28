@@ -15,7 +15,6 @@
  */
 package org.teavm.vm;
 
-import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.function.Predicate;
@@ -26,6 +25,7 @@ import org.teavm.diagnostics.Diagnostics;
 import org.teavm.model.ClassReaderSource;
 import org.teavm.model.MethodReference;
 import org.teavm.model.analysis.ClassInitializerInfo;
+import org.teavm.parsing.resource.ResourceProvider;
 
 public interface TeaVMTargetController {
     boolean wasCancelled();
@@ -33,6 +33,8 @@ public interface TeaVMTargetController {
     ClassLoader getClassLoader();
 
     ClassReaderSource getUnprocessedClassSource();
+
+    ResourceProvider getResourceProvider();
 
     CacheStatus getCacheStatus();
 
@@ -48,7 +50,9 @@ public interface TeaVMTargetController {
 
     boolean isFriendlyToDebugger();
 
-    Map<? extends String, ? extends TeaVMEntryPoint> getEntryPoints();
+    String getEntryPoint();
+
+    String getEntryPointName();
 
     Set<? extends String> getPreservedClasses();
 
@@ -59,5 +63,4 @@ public interface TeaVMTargetController {
     void addVirtualMethods(Predicate<MethodReference> methods);
 
     ClassInitializerInfo getClassInitializerInfo();
-
 }

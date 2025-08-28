@@ -15,13 +15,14 @@
  */
 package org.teavm.platform.plugin;
 
-import java.io.IOException;
 import java.lang.annotation.Annotation;
 import org.teavm.backend.javascript.codegen.SourceWriter;
 import org.teavm.backend.javascript.spi.Generator;
 import org.teavm.backend.javascript.spi.GeneratorContext;
 import org.teavm.backend.javascript.spi.Injector;
 import org.teavm.backend.javascript.spi.InjectorContext;
+import org.teavm.backend.javascript.templating.JavaScriptTemplate;
+import org.teavm.backend.javascript.templating.JavaScriptTemplateFactory;
 import org.teavm.dependency.DependencyAgent;
 import org.teavm.dependency.DependencyPlugin;
 import org.teavm.dependency.MethodDependency;
@@ -36,11 +37,13 @@ import org.teavm.platform.PlatformClass;
 import org.teavm.platform.PlatformRunnable;
 
 public class PlatformGenerator implements Generator, Injector, DependencyPlugin {
+    private JavaScriptTemplate template;
+
     @Override
     public void methodReached(DependencyAgent agent, MethodDependency method) {
         switch (method.getReference().getName()) {
             case "asJavaClass":
-                method.getResult().propagate(agent.getType("java.lang.Class"));
+                method.getResult().propagate(agent.getType(ValueType.object("java.lang.Class")));
                 return;
             case "clone":
                 method.getVariable(1).connect(method.getResult());
@@ -54,24 +57,24 @@ public class PlatformGenerator implements Generator, Injector, DependencyPlugin 
                 break;
             }
             case "getCurrentThread":
-                method.getResult().propagate(agent.getType("java.lang.Thread"));
+                method.getResult().propagate(agent.getType(ValueType.object("java.lang.Thread")));
                 break;
             case "getEnumConstants":
-                method.getResult().propagate(agent.getType("[Ljava/lang/Enum;"));
+                method.getResult().propagate(agent.getType(ValueType.arrayOf(ValueType.object("java.lang.Enum"))));
                 break;
             case "getName":
             case "getSimpleName":
-                method.getResult().propagate(agent.getType("java.lang.String"));
+                method.getResult().propagate(agent.getType(ValueType.object("java.lang.String")));
                 break;
             case "getEnclosingClass":
             case "getDeclaringClass":
-                method.getResult().propagate(agent.getType("java.lang.Class"));
+                method.getResult().propagate(agent.getType(ValueType.object("java.lang.Class")));
                 break;
         }
     }
 
     @Override
-    public void generate(InjectorContext context, MethodReference methodRef) throws IOException {
+    public void generate(InjectorContext context, MethodReference methodRef) {
         switch (methodRef.getName()) {
             case "asJavaClass":
             case "classFromResource":
@@ -88,25 +91,13 @@ public class PlatformGenerator implements Generator, Injector, DependencyPlugin 
     }
 
     @Override
-    public void generate(GeneratorContext context, SourceWriter writer, MethodReference methodRef) throws IOException {
+    public void generate(GeneratorContext context, SourceWriter writer, MethodReference methodRef) {
         switch (methodRef.getName()) {
-            case "newInstanceImpl":
-                generateNewInstance(context, writer);
-                break;
             case "prepareNewInstance":
                 generatePrepareNewInstance(context, writer);
                 break;
             case "lookupClass":
                 generateLookup(context, writer);
-                break;
-            case "clone":
-                generateClone(context, writer);
-                break;
-            case "startThread":
-                generateSchedule(context, writer, false);
-                break;
-            case "schedule":
-                generateSchedule(context, writer, true);
                 break;
             case "getEnumConstants":
                 generateEnumConstants(context, writer);
@@ -114,108 +105,73 @@ public class PlatformGenerator implements Generator, Injector, DependencyPlugin 
             case "getAnnotations":
                 generateAnnotations(context, writer);
                 break;
+            default:
+                generateWithTemplate(context, writer, methodRef);
+                break;
         }
     }
 
-    private void generatePrepareNewInstance(GeneratorContext context, SourceWriter writer) throws IOException {
+    private void generateWithTemplate(GeneratorContext context, SourceWriter writer, MethodReference methodRef) {
+        if (template == null) {
+            template = new JavaScriptTemplateFactory(context.getClassLoader(), context.getClassSource())
+                    .createFromResource("org/teavm/platform/plugin/Platform.js");
+        }
+        template.builder(methodRef.getName()).withContext(context).build().write(writer, 0);
+    }
+
+    private void generatePrepareNewInstance(GeneratorContext context, SourceWriter writer) {
         MethodDependencyInfo newInstanceMethod = context.getDependency().getMethod(
                 new MethodReference(Platform.class, "newInstanceImpl", PlatformClass.class, Object.class));
-        writer.append("var c").ws().append("=").ws().append("'$$constructor$$';").softNewLine();
+        writer.append("let c").ws().append("=").ws().append("'$$constructor$$';").softNewLine();
         if (newInstanceMethod != null) {
-            for (String clsName : newInstanceMethod.getResult().getTypes()) {
-                ClassReader cls = context.getClassSource().get(clsName);
+            for (var type : newInstanceMethod.getResult().getTypes()) {
+                if (!(type instanceof ValueType.Object)) {
+                    continue;
+                }
+                var className = ((ValueType.Object) type).getClassName();
+                ClassReader cls = context.getClassSource().get(className);
                 if (cls == null) {
                     continue;
                 }
                 MethodReader method = cls.getMethod(new MethodDescriptor("<init>", void.class));
                 if (method != null) {
-                    writer.appendClass(clsName).append("[c]").ws().append("=").ws()
-                            .appendMethodBody(method.getReference()).append(";").softNewLine();
+                    writer.appendClass(className).append("[c]").ws().append("=").ws()
+                            .appendMethod(method.getReference()).append(";").softNewLine();
                 }
             }
         }
     }
 
-    private void generateNewInstance(GeneratorContext context, SourceWriter writer) throws IOException {
-        String cls = context.getParameterName(1);
-
-        writer.append("if").ws().append("($rt_resuming())").ws().append("{").indent().softNewLine();
-        writer.append("var $r = $rt_nativeThread().pop();").softNewLine();
-        writer.append(cls + ".$$constructor$$($r);").softNewLine();
-        writer.append("if").ws().append("($rt_suspending())").ws().append("{").indent().softNewLine();
-        writer.append("return $rt_nativeThread().push($r);").softNewLine();
-        writer.outdent().append("}").softNewLine();
-        writer.append("return $r;").softNewLine();
-        writer.outdent().append("}").softNewLine();
-
-        writer.append("if").ws().append("(!").append(cls).append(".hasOwnProperty('$$constructor$$'))")
-                .ws().append("{").indent().softNewLine();
-        writer.append("return null;").softNewLine();
-        writer.outdent().append("}").softNewLine();
-
-        writer.append("var $r").ws().append('=').ws().append("new ").append(cls).append("();").softNewLine();
-        writer.append(cls).append(".$$constructor$$($r);").softNewLine();
-        writer.append("if").ws().append("($rt_suspending())").ws().append("{").indent().softNewLine();
-        writer.append("return $rt_nativeThread().push($r);").softNewLine();
-        writer.outdent().append("}").softNewLine();
-        writer.append("return $r;").softNewLine();
-    }
-
-    private void generateLookup(GeneratorContext context, SourceWriter writer) throws IOException {
+    private void generateLookup(GeneratorContext context, SourceWriter writer) {
         String param = context.getParameterName(1);
-        writer.append("switch ($rt_ustr(" + param + ")) {").softNewLine().indent();
+        writer.append("switch").ws().append("(").appendFunction("$rt_ustr").append("(" + param + "))")
+                .ws().append("{").softNewLine().indent();
         for (String name : context.getClassSource().getClassNames()) {
-            writer.append("case \"" + name + "\": ").appendClass(name).append(".$clinit(); ")
+            writer.append("case \"" + name + "\":").ws().appendClass(name).append(".$clinit();").ws()
                     .append("return ").appendClass(name).append(";").softNewLine();
         }
-        writer.append("default: return null;").softNewLine();
+        writer.append("default:").ws().append("return null;").softNewLine();
         writer.outdent().append("}").softNewLine();
     }
 
-    private void generateClone(GeneratorContext context, SourceWriter writer) throws IOException {
-        String obj = context.getParameterName(1);
-        writer.append("var copy").ws().append("=").ws().append("new ").append(obj).append(".constructor();")
-                .softNewLine();
-        writer.append("for").ws().append("(var field in " + obj + ")").ws().append("{").softNewLine().indent();
-        writer.append("if").ws().append("(!" + obj + ".hasOwnProperty(field))").ws().append("{").softNewLine().indent();
-        writer.append("continue;").softNewLine().outdent().append("}").softNewLine();
-        writer.append("copy[field]").ws().append("=").ws().append(obj).append("[field];")
-                .softNewLine().outdent().append("}").softNewLine();
-        writer.append("return copy;").softNewLine();
-    }
 
-    private void generateSchedule(GeneratorContext context, SourceWriter writer, boolean timeout) throws IOException {
-        MethodReference launchRef = new MethodReference(Platform.class, "launchThread",
-                PlatformRunnable.class, void.class);
-        String runnable = context.getParameterName(1);
-        writer.append("return setTimeout(function()").ws().append("{").indent().softNewLine();
-        if (timeout) {
-            writer.appendMethodBody(launchRef);
-        } else {
-            writer.append("$rt_threadStarter(").appendMethodBody(launchRef).append(")");
-        }
-        writer.append("(").append(runnable).append(");").softNewLine();
-        writer.outdent().append("},").ws().append(timeout ? context.getParameterName(2) : "0")
-                .append(");").softNewLine();
-    }
-
-    private void generateEnumConstants(GeneratorContext context, SourceWriter writer) throws IOException {
-        writer.append("var c").ws().append("=").ws().append("'$$enumConstants$$';").softNewLine();
+    private void generateEnumConstants(GeneratorContext context, SourceWriter writer) {
+        writer.append("let c").ws().append("=").ws().append("'$$enumConstants$$';").softNewLine();
         for (String clsName : context.getClassSource().getClassNames()) {
             ClassReader cls = context.getClassSource().get(clsName);
             MethodReader method = cls.getMethod(new MethodDescriptor("values",
                     ValueType.arrayOf(ValueType.object(clsName))));
             if (method != null) {
                 writer.appendClass(clsName).append("[c]").ws().append("=").ws();
-                writer.appendMethodBody(method.getReference());
+                writer.appendMethod(method.getReference());
                 writer.append(";").softNewLine();
             }
         }
 
         MethodReference selfRef = new MethodReference(Platform.class, "getEnumConstants",
                 PlatformClass.class, Enum[].class);
-        writer.appendMethodBody(selfRef).ws().append("=").ws().append("function(cls)").ws().append("{").softNewLine()
-                .indent();
+        writer.appendMethod(selfRef).ws().append("=").ws().append("cls").sameLineWs().append("=>").ws()
+                .append("{").softNewLine().indent();
         writer.append("if").ws().append("(!cls.hasOwnProperty(c))").ws().append("{").indent().softNewLine();
         writer.append("return null;").softNewLine();
         writer.outdent().append("}").softNewLine();
@@ -226,12 +182,12 @@ public class PlatformGenerator implements Generator, Injector, DependencyPlugin 
         writer.append("return cls[c];").softNewLine();
         writer.outdent().append("};").softNewLine();
 
-        writer.append("return ").appendMethodBody(selfRef).append("(").append(context.getParameterName(1))
+        writer.append("return ").appendMethod(selfRef).append("(").append(context.getParameterName(1))
                 .append(");").softNewLine();
     }
 
-    private void generateAnnotations(GeneratorContext context, SourceWriter writer) throws IOException {
-        writer.append("var c").ws().append("=").ws().append("'$$annotations$$';").softNewLine();
+    private void generateAnnotations(GeneratorContext context, SourceWriter writer) {
+        writer.append("let c").ws().append("=").ws().append("'$$annotations$$';").softNewLine();
         for (String clsName : context.getClassSource().getClassNames()) {
             ClassReader annotCls = context.getClassSource().get(clsName + "$$__annotations__$$");
             if (annotCls != null) {
@@ -244,15 +200,16 @@ public class PlatformGenerator implements Generator, Injector, DependencyPlugin 
 
         MethodReference selfRef = new MethodReference(Platform.class, "getAnnotations", PlatformClass.class,
                 Annotation[].class);
-        writer.appendMethodBody(selfRef).ws().append("=").ws().append("function(cls)").ws().append("{").softNewLine()
-                .indent();
+        writer.appendMethod(selfRef).ws().append("=").ws().append("cls").sameLineWs().append("=>").ws()
+                .append("{").softNewLine().indent();
         writer.append("if").ws().append("(!cls.hasOwnProperty(c))").ws().append("{").indent().softNewLine();
         writer.append("return null;").softNewLine();
         writer.outdent().append("}").softNewLine();
-        writer.append("return cls[c].").appendMethod("getAnnotations", Annotation[].class).append("();").softNewLine();
+        writer.append("return cls[c].").appendVirtualMethod("getAnnotations", Annotation[].class).append("();")
+                .softNewLine();
         writer.outdent().append("};").softNewLine();
 
-        writer.append("return ").appendMethodBody(selfRef).append("(").append(context.getParameterName(1))
+        writer.append("return ").appendMethod(selfRef).append("(").append(context.getParameterName(1))
                 .append(");").softNewLine();
     }
 }

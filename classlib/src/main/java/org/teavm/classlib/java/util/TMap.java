@@ -15,8 +15,6 @@
  */
 package org.teavm.classlib.java.util;
 
-import static java.util.Objects.requireNonNull;
-import java.util.Objects;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -44,6 +42,16 @@ public interface TMap<K, V> {
         static <K, V> TComparator<TMap.Entry<K, V>> comparingByValue(TComparator<? super V> comp) {
             return (a, b) -> comp.compare(a.getValue(), b.getValue());
         }
+
+        @SuppressWarnings("unchecked")
+        static <K, V> TMap.Entry<K, V> copyOf(TMap.Entry<? extends K, ? extends V> e) {
+            TObjects.requireNonNull(e);
+            if (e instanceof TTemplateCollections.ImmutableEntry) {
+                return (TMap.Entry<K, V>) e;
+            } else {
+                return TMap.entry(e.getKey(), e.getValue());
+            }
+        }
     }
 
     int size();
@@ -56,7 +64,7 @@ public interface TMap<K, V> {
 
     V get(Object key);
 
-    default V getOrDefault(K key, V defaultValue) {
+    default V getOrDefault(Object key, V defaultValue) {
         return containsKey(key) ? get(key) : defaultValue;
     }
 
@@ -65,7 +73,7 @@ public interface TMap<K, V> {
     V remove(Object key);
 
     default boolean remove(Object key, Object value) {
-        if (containsKey(key) && Objects.equals(get(key), value)) {
+        if (containsKey(key) && TObjects.equals(get(key), value)) {
             remove(key);
             return true;
         }
@@ -109,6 +117,7 @@ public interface TMap<K, V> {
     }
 
     default V computeIfAbsent(K key, Function<? super K, ? extends V> mappingFunction) {
+        TObjects.requireNonNull(mappingFunction);
         V v = get(key);
         if (v == null) {
             V newValue = mappingFunction.apply(key);
@@ -121,10 +130,10 @@ public interface TMap<K, V> {
     }
 
     default V computeIfPresent(K key, BiFunction<? super K, ? super V, ? extends V> remappingFunction) {
+        TObjects.requireNonNull(remappingFunction);
         V v = get(key);
         if (v != null) {
-            V oldValue = v;
-            V newValue = remappingFunction.apply(key, oldValue);
+            V newValue = remappingFunction.apply(key, v);
             if (newValue != null) {
                 put(key, newValue);
             } else {
@@ -136,6 +145,7 @@ public interface TMap<K, V> {
     }
 
     default V compute(K key, BiFunction<? super K, ? super V, ? extends V> remappingFunction) {
+        TObjects.requireNonNull(remappingFunction);
         V oldValue = get(key);
         V newValue = remappingFunction.apply(key, oldValue);
         if (oldValue != null) {
@@ -151,9 +161,9 @@ public interface TMap<K, V> {
     }
 
     default V merge(K key, V value, BiFunction<? super V, ? super V, ? extends V> remappingFunction) {
+        TObjects.requireNonNull(remappingFunction);
         V oldValue = get(key);
-        V newValue = (oldValue == null) ? value
-                : remappingFunction.apply(oldValue, value);
+        V newValue = (oldValue == null) ? value : remappingFunction.apply(oldValue, value);
         if (newValue == null) {
             remove(key);
         } else {
@@ -163,10 +173,19 @@ public interface TMap<K, V> {
     }
 
     default void forEach(BiConsumer<? super K, ? super V> action) {
+        TObjects.requireNonNull(action);
         final TIterator<Entry<K, V>> iterator = entrySet().iterator();
         while (iterator.hasNext()) {
             final Entry<K, V> entry = iterator.next();
             action.accept(entry.getKey(), entry.getValue());
+        }
+    }
+
+    default void replaceAll(BiFunction<? super K, ? super V, ? extends V> function) {
+        TIterator<Entry<K, V>> iterator = entrySet().iterator();
+        while (iterator.hasNext()) {
+            TMap.Entry<K, V> next = iterator.next();
+            next.setValue(function.apply(next.getKey(), next.getValue()));
         }
     }
 
@@ -284,6 +303,15 @@ public interface TMap<K, V> {
     }
 
     static <K, V> TMap.Entry<K, V> entry(K k, V v) {
-        return new TTemplateCollections.ImmutableEntry<>(requireNonNull(k), requireNonNull(v));
+        return new TTemplateCollections.ImmutableEntry<>(TObjects.requireNonNull(k), TObjects.requireNonNull(v));
+    }
+
+    @SuppressWarnings("unchecked")
+    static <K, V> TMap<K, V> copyOf(TMap<? extends K, ? extends V> map) {
+        if (map instanceof TTemplateCollections.NEtriesMap) {
+            return (TTemplateCollections.NEtriesMap<K, V>) map;
+        } else {
+            return new TTemplateCollections.NEtriesMap<>(map);
+        }
     }
 }

@@ -15,6 +15,7 @@
  */
 package org.teavm.classlib.java.util;
 
+import java.util.Objects;
 import org.teavm.classlib.java.lang.*;
 import org.teavm.interop.Rename;
 
@@ -32,7 +33,7 @@ public abstract class TAbstractList<E> extends TAbstractCollection<E> implements
 
     @Override
     public TIterator<E> iterator() {
-        return new TIterator<E>() {
+        return new TIterator<>() {
             private int index;
             private int modCount = TAbstractList.this.modCount;
             private int size = size();
@@ -69,7 +70,7 @@ public abstract class TAbstractList<E> extends TAbstractCollection<E> implements
     @Override
     public boolean addAll(int index, TCollection<? extends E> c) {
         if (index < 0 || index > size()) {
-            throw new TIllegalArgumentException();
+            throw new TIndexOutOfBoundsException();
         }
         if (c.isEmpty()) {
             return false;
@@ -99,8 +100,7 @@ public abstract class TAbstractList<E> extends TAbstractCollection<E> implements
     public int indexOf(Object o) {
         int sz = size();
         for (int i = 0; i < sz; ++i) {
-            Object e = get(i);
-            if (o == null ? e == null : o.equals(e)) {
+            if (TObjects.equals(o, get(i))) {
                 return i;
             }
         }
@@ -111,8 +111,7 @@ public abstract class TAbstractList<E> extends TAbstractCollection<E> implements
     public int lastIndexOf(Object o) {
         int sz = size();
         for (int i = sz - 1; i >= 0; --i) {
-            Object e = get(i);
-            if (o == null ? e == null : o.equals(e)) {
+            if (TObjects.equals(o, get(i))) {
                 return i;
             }
         }
@@ -163,7 +162,7 @@ public abstract class TAbstractList<E> extends TAbstractCollection<E> implements
         int hashCode = 1;
         for (TIterator<? extends E> iter = iterator(); iter.hasNext();) {
             E elem = iter.next();
-            hashCode = 31 * hashCode + (elem != null ? elem.hashCode() : 0);
+            hashCode = 31 * hashCode + Objects.hashCode(elem);
         }
         return hashCode;
     }

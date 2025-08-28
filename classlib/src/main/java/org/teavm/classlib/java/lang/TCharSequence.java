@@ -15,12 +15,26 @@
  */
 package org.teavm.classlib.java.lang;
 
+import org.teavm.classlib.java.util.stream.TIntStream;
+import org.teavm.classlib.java.util.stream.intimpl.TCharSequenceCharsStream;
+import org.teavm.classlib.java.util.stream.intimpl.TCharSequenceCodePointsStream;
+
 public interface TCharSequence {
     int length();
 
     char charAt(int index);
 
+    boolean isEmpty();
+
     TCharSequence subSequence(int start, int end);
+
+    default TIntStream chars() {
+        return new TCharSequenceCharsStream(this);
+    }
+
+    default TIntStream codePoints() {
+        return new TCharSequenceCodePointsStream(this);
+    }
 
     @Override
     String toString();

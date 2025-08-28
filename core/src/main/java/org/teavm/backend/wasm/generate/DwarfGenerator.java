@@ -26,24 +26,28 @@ import static org.teavm.backend.wasm.dwarf.DwarfConstants.DW_FORM_ADDR;
 import static org.teavm.backend.wasm.dwarf.DwarfConstants.DW_FORM_DATA2;
 import static org.teavm.backend.wasm.dwarf.DwarfConstants.DW_FORM_SEC_OFFSET;
 import static org.teavm.backend.wasm.dwarf.DwarfConstants.DW_FORM_STRP;
-import static org.teavm.backend.wasm.dwarf.DwarfConstants.DW_LANG_JAVA;
+import static org.teavm.backend.wasm.dwarf.DwarfConstants.DW_LANG_C_PLUS_PLUS;
 import static org.teavm.backend.wasm.dwarf.DwarfConstants.DW_TAG_COMPILE_UNIT;
 import static org.teavm.backend.wasm.dwarf.DwarfConstants.DW_UT_COMPILE;
 import java.util.ArrayList;
 import java.util.Collection;
-import org.teavm.backend.wasm.blob.Blob;
-import org.teavm.backend.wasm.blob.Marker;
 import org.teavm.backend.wasm.dwarf.DwarfInfoWriter;
 import org.teavm.backend.wasm.dwarf.DwarfPlaceholder;
 import org.teavm.backend.wasm.model.WasmCustomSection;
+import org.teavm.common.binary.Blob;
+import org.teavm.common.binary.Marker;
 
 public class DwarfGenerator {
     private DwarfInfoWriter infoWriter = new DwarfInfoWriter();
     private DwarfPlaceholder endOfSection;
     public final DwarfStrings strings = new DwarfStrings();
     private DwarfStrings lineStrings = new DwarfStrings();
-    private DwarfLinesGenerator lines = new DwarfLinesGenerator(lineStrings);
+    private DwarfLinesGenerator lines;
     private Marker highPcMarker;
+
+    public DwarfGenerator(SourceFileResolver sourceFileResolver) {
+         lines = new DwarfLinesGenerator(lineStrings, sourceFileResolver);
+    }
 
     public void begin() {
         endOfSection = infoWriter.placeholder(4);
@@ -82,7 +86,7 @@ public class DwarfGenerator {
             data.writeLEB(DW_AT_HIGH_PC).writeLEB(DW_FORM_ADDR);
         }));
         infoWriter.writeInt(strings.stringRef("TeaVM"));
-        infoWriter.writeShort(DW_LANG_JAVA);
+        infoWriter.writeShort(DW_LANG_C_PLUS_PLUS);
         infoWriter.writeInt(strings.stringRef("classes.wasm"));
         infoWriter.writeInt(0);
         infoWriter.writeInt(0);

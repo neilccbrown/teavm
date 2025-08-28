@@ -17,20 +17,25 @@ package org.teavm.classlib.java.nio;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.sameInstance;
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.fail;
 import java.nio.BufferOverflowException;
 import java.nio.BufferUnderflowException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.nio.InvalidMarkException;
 import java.nio.ReadOnlyBufferException;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.teavm.junit.SkipPlatform;
 import org.teavm.junit.TeaVMTestRunner;
-import org.teavm.junit.WholeClassCompilation;
+import org.teavm.junit.TestPlatform;
 
 @RunWith(TeaVMTestRunner.class)
-@WholeClassCompilation
 public class FloatBufferTest {
     @Test
     public void allocatesSimple() {
@@ -48,6 +53,34 @@ public class FloatBufferTest {
             // ok
         }
     }
+
+    @Test
+    @SkipPlatform({ TestPlatform.WASI, TestPlatform.WEBASSEMBLY })
+    public void bulkTransferDirect() {
+        var buffer = ByteBuffer.allocateDirect(40).asFloatBuffer();
+        var floats = new float[] { 1, 2, 3 };
+        buffer.put(0, floats);
+        var floatsCopy = new float[floats.length];
+        buffer.get(0, floatsCopy);
+        assertArrayEquals(floats, floatsCopy, 0.1f);
+    }
+
+    @Test
+    public void bulkTransferRelative() {
+        var arr = new float[5];
+        var buffer = FloatBuffer.wrap(arr);
+        var src = FloatBuffer.wrap(new float[] { 1.0f, 2.0f, 3.0f });
+        buffer.put(src);
+        assertArrayEquals(new float[] { 1.0f, 2.0f, 3.0f, 0.0f, 0.0f }, arr, 0.0f);
+        assertEquals(3, buffer.position());
+        assertEquals(3, src.position());
+
+        assertThrows(BufferOverflowException.class, () -> buffer.put(
+                FloatBuffer.wrap(new float[] { 4.0f, 5.0f, 6.0f })));
+        assertThrows(ReadOnlyBufferException.class, () -> buffer.rewind().asReadOnlyBuffer()
+                .put(FloatBuffer.wrap(new float[] { 4.0f, 5.0f, 6.0f })));
+    }
+
 
     @Test(expected = IllegalArgumentException.class)
     public void errorIfAllocatingBufferOfNegativeSize() {
@@ -371,5 +404,231 @@ public class FloatBufferTest {
         buffer.position(2);
         buffer.reset();
         assertThat(buffer.position(), is(1));
+    }
+
+    @Test
+    public void putEmptyArray() {
+        FloatBuffer fb = FloatBuffer.allocate(0);
+        fb.put(new float[0]);
+        fb.get(new float[0]);
+    }
+
+    @Test
+    public void bulkPut() {
+        var buffer = FloatBuffer.allocate(100);
+        buffer.put(new float[] { 1, 2, 3 });
+        assertEquals(3, buffer.position());
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(2, buffer.get(1), 0.1f);
+        assertEquals(3, buffer.get(2), 0.1f);
+
+        buffer.put(1, new float[] { 4, 5, 6 });
+        assertEquals(3, buffer.position());
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(4, buffer.get(1), 0.1f);
+        assertEquals(5, buffer.get(2), 0.1f);
+        assertEquals(6, buffer.get(3), 0.1f);
+
+        buffer.put(0, new float[] { 7, 8, 9, 10 }, 1, 2);
+        assertEquals(8, buffer.get(0), 0.1f);
+        assertEquals(9, buffer.get(1), 0.1f);
+        assertEquals(5, buffer.get(2), 0.1f);
+        assertEquals(6, buffer.get(3), 0.1f);
+    }
+
+    @Test
+    public void bulkPutWrapper() {
+        var byteBuffer = ByteBuffer.allocate(100);
+        byteBuffer.order(ByteOrder.BIG_ENDIAN);
+        var buffer = byteBuffer.asFloatBuffer();
+
+        buffer.put(new float[] { 1, 2, 3 });
+        assertEquals(3, buffer.position());
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(2, buffer.get(1), 0.1f);
+        assertEquals(3, buffer.get(2), 0.1f);
+
+        buffer.put(1, new float[] { 4, 5, 6 });
+        assertEquals(3, buffer.position());
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(4, buffer.get(1), 0.1f);
+        assertEquals(5, buffer.get(2), 0.1f);
+        assertEquals(6, buffer.get(3), 0.1f);
+        assertEquals((byte) 0x3f, byteBuffer.get(0));
+        assertEquals((byte) 0x80, byteBuffer.get(1));
+        assertEquals(0, byteBuffer.get(2));
+        assertEquals(0, byteBuffer.get(3));
+
+        buffer.put(0, new float[] { 7, 8, 9, 10 }, 1, 2);
+        assertEquals(8, buffer.get(0), 0.1f);
+        assertEquals(9, buffer.get(1), 0.1f);
+        assertEquals(5, buffer.get(2), 0.1f);
+        assertEquals(6, buffer.get(3), 0.1f);
+
+        byteBuffer.order(ByteOrder.LITTLE_ENDIAN);
+        buffer = byteBuffer.asFloatBuffer();
+
+        buffer.put(new float[] { 1, 2, 3 });
+        assertEquals(3, buffer.position());
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(2, buffer.get(1), 0.1f);
+        assertEquals(3, buffer.get(2), 0.1f);
+
+        buffer.put(1, new float[] { 4, 5, 6 });
+        assertEquals(3, buffer.position());
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(4, buffer.get(1), 0.1f);
+        assertEquals(5, buffer.get(2), 0.1f);
+        assertEquals(6, buffer.get(3), 0.1f);
+        assertEquals(0, byteBuffer.get(0));
+        assertEquals(0, byteBuffer.get(1));
+        assertEquals((byte) 0x80, byteBuffer.get(2));
+        assertEquals((byte) 0x3f, byteBuffer.get(3));
+
+        buffer.put(0, new float[] { 7, 8, 9, 10 }, 1, 2);
+        assertEquals(8, buffer.get(0), 0.1f);
+        assertEquals(9, buffer.get(1), 0.1f);
+        assertEquals(5, buffer.get(2), 0.1f);
+        assertEquals(6, buffer.get(3), 0.1f);
+    }
+
+    @Test
+    public void bulkPutBuffer() {
+        var buffer = FloatBuffer.allocate(100);
+        buffer.put(FloatBuffer.wrap(new float[] { 1, 2, 3 }));
+
+        assertEquals(3, buffer.position());
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(2, buffer.get(1), 0.1f);
+        assertEquals(3, buffer.get(2), 0.1f);
+
+        buffer.put(1, FloatBuffer.wrap(new float[] { 4, 5, 6 }), 1, 2);
+        assertEquals(3, buffer.position());
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(5, buffer.get(1), 0.1f);
+        assertEquals(6, buffer.get(2), 0.1f);
+    }
+
+    @Test
+    public void bulkPutBufferWrapper() {
+        var buffer = ByteBuffer.allocate(100).order(ByteOrder.BIG_ENDIAN).asFloatBuffer();
+        buffer.put(ByteBuffer.wrap(new byte[] {
+                        0x3f, (byte) 0x80, 0x00, 0x00,
+                        0x40, 0x00, 0x00, 0x00,
+                        0x40, 0x40, 0x00, 0x00
+                })
+                .order(ByteOrder.BIG_ENDIAN)
+                .asFloatBuffer());
+
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(2, buffer.get(1), 0.1f);
+        assertEquals(3, buffer.get(2), 0.1f);
+
+        buffer = ByteBuffer.allocate(100).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer();
+        buffer.put(ByteBuffer.wrap(new byte[] {
+                        0x3f, (byte) 0x80, 0x00, 0x00,
+                        0x40, 0x00, 0x00, 0x00,
+                        0x40, 0x40, 0x00, 0x00
+                })
+                .order(ByteOrder.BIG_ENDIAN)
+                .asFloatBuffer());
+
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(2, buffer.get(1), 0.1f);
+        assertEquals(3, buffer.get(2), 0.1f);
+
+        buffer = ByteBuffer.allocate(100).order(ByteOrder.BIG_ENDIAN).asFloatBuffer();
+        buffer.put(ByteBuffer.wrap(new byte[] {
+                        0x00, 0x00, (byte) 0x80, 0x3f,
+                        0x00, 0x00, 0x00, 0x40,
+                        0x00, 0x00, 0x40, 0x40
+                })
+                .order(ByteOrder.LITTLE_ENDIAN)
+                .asFloatBuffer());
+
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(2, buffer.get(1), 0.1f);
+        assertEquals(3, buffer.get(2), 0.1f);
+
+        buffer = ByteBuffer.allocate(100).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer();
+        buffer.put(ByteBuffer.wrap(new byte[] {
+                        0x00, 0x00, (byte) 0x80, 0x3f,
+                        0x00, 0x00, 0x00, 0x40,
+                        0x00, 0x00, 0x40, 0x40
+                })
+                .order(ByteOrder.LITTLE_ENDIAN)
+                .asFloatBuffer());
+
+        assertEquals(1, buffer.get(0), 0.1f);
+        assertEquals(2, buffer.get(1), 0.1f);
+        assertEquals(3, buffer.get(2), 0.1f);
+    }
+
+    @Test
+    public void bulkGet() {
+        var buffer = FloatBuffer.wrap(new float[] { 1, 2, 3, 4, 5, 6 });
+        var arr = new float[3];
+
+        buffer.get(arr);
+        assertArrayEquals(new float[] { 1, 2, 3 }, arr, 0.1f);
+        assertEquals(3, buffer.position());
+
+        buffer.get(1, arr);
+        assertArrayEquals(new float[] { 2, 3, 4 }, arr, 0.1f);
+        assertEquals(3, buffer.position());
+
+        buffer.get(4, arr, 1, 2);
+        assertArrayEquals(new float[] { 2, 5, 6 }, arr, 0.1f);
+        assertEquals(3, buffer.position());
+    }
+
+    @Test
+    public void bulkGetWrapper() {
+        var buffer = ByteBuffer.wrap(new byte[] {
+                        0x00, 0x00, (byte) 0x80, 0x3f,
+                        0x00, 0x00, 0x00, 0x40,
+                        0x00, 0x00, 0x40, 0x40,
+                        0x00, 0x00, (byte) 0x80, 0x40,
+                        0x00, 0x00, (byte) 0xA0, 0x40,
+                        0x00, 0x00, (byte) 0xC0, 0x40
+                })
+                .order(ByteOrder.LITTLE_ENDIAN)
+                .asFloatBuffer();
+        var arr = new float[3];
+
+        buffer.get(arr);
+        assertArrayEquals(new float[] { 1, 2, 3 }, arr, 0.1f);
+        assertEquals(3, buffer.position());
+
+        buffer.get(1, arr);
+        assertArrayEquals(new float[] { 2, 3, 4 }, arr, 0.1f);
+        assertEquals(3, buffer.position());
+
+        buffer.get(4, arr, 1, 2);
+        assertArrayEquals(new float[] { 2, 5, 6 }, arr, 0.1f);
+        assertEquals(3, buffer.position());
+
+        buffer = ByteBuffer.wrap(new byte[] {
+                        0x3f, (byte) 0x80, 0x00, 0x00,
+                        0x40, 0x00, 0x00, 0x00,
+                        0x40, 0x40, 0x00, 0x00,
+                        0x40, (byte) 0x80, 0x00, 0x00,
+                        0x40, (byte) 0xA0, 0x00, 0x00,
+                        0x40, (byte) 0xC0, 0x00, 0x00
+                })
+                .order(ByteOrder.BIG_ENDIAN)
+                .asFloatBuffer();
+
+        buffer.get(arr);
+        assertArrayEquals(new float[] { 1, 2, 3 }, arr, 0.1f);
+        assertEquals(3, buffer.position());
+
+        buffer.get(1, arr);
+        assertArrayEquals(new float[] { 2, 3, 4 }, arr, 0.1f);
+        assertEquals(3, buffer.position());
+
+        buffer.get(4, arr, 1, 2);
+        assertArrayEquals(new float[] { 2, 5, 6 }, arr, 0.1f);
+        assertEquals(3, buffer.position());
     }
 }
