@@ -29,11 +29,11 @@ dependencies {
     implementation(project(":tools:deobfuscator-wasm-gc"))
 }
 
-pluginBundle {
-    website = "https://teavm.org"
-    vcsUrl = "https://github.com/konsoletyper/teavm"
-    tags = listOf("teavm", "javascript", "webassembly", "compiler", "aot-compiler")
-}
+//pluginBundle {
+//    website = "https://teavm.org"
+//    vcsUrl = "https://github.com/konsoletyper/teavm"
+//    tags = listOf("teavm", "javascript", "webassembly", "compiler", "aot-compiler")
+//}
 
 gradlePlugin {
     website = "https://teavm.org"
@@ -130,8 +130,8 @@ publishing {
     }
 }
 // Turn off signing for Greenfoot variant:
-signing {
-    setRequired {
-        false
-    }
-}
+//signing {
+//    setRequired {
+//        false
+//    }
+//}
